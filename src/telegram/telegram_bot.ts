@@ -137,14 +137,14 @@ export function notifyBuyOpened(
       lines.push(`🔒 Established: ${est} · Mint: ${mintR} · Freeze: ${freezeR}`);
     }
     const lpLine: string[] = [];
-    if (rug.lpLockedPct !== undefined) lpLine.push(`LP: ${rug.lpLockedPct.toFixed(1)}%`);
-    if (rug.top10Pct !== undefined) lpLine.push(`Top10: ${rug.top10Pct.toFixed(1)}%`);
-    if (rug.pairAgeHours !== undefined) lpLine.push(`Age: ${rug.pairAgeHours.toFixed(0)}h`);
+    if (rug.lpLockedPct != null) lpLine.push(`LP: ${rug.lpLockedPct.toFixed(1)}%`);
+    if (rug.top10Pct != null) lpLine.push(`Top10: ${rug.top10Pct.toFixed(1)}%`);
+    if (rug.pairAgeHours != null) lpLine.push(`Age: ${rug.pairAgeHours.toFixed(0)}h`);
     if (lpLine.length) lines.push(`🔐 \`${lpLine.join(" · ")}\``);
-    if (rug.priceUsd !== undefined) {
-      const liq = rug.liquidityUsd !== undefined ? ` · Liq: $${fmtShort(rug.liquidityUsd)}` : "";
-      const vol = rug.volume24h !== undefined ? ` · Vol: $${fmtShort(rug.volume24h)}` : "";
-      const fdv = rug.fdv !== undefined ? ` · FDV: $${fmtShort(rug.fdv)}` : "";
+    if (rug.priceUsd != null) {
+      const liq = rug.liquidityUsd != null ? ` · Liq: $${fmtShort(rug.liquidityUsd)}` : "";
+      const vol = rug.volume24h != null ? ` · Vol: $${fmtShort(rug.volume24h)}` : "";
+      const fdv = rug.fdv != null ? ` · FDV: $${fmtShort(rug.fdv)}` : "";
       lines.push(`📊 $${rug.priceUsd}${liq}${vol}${fdv}`);
     }
     if (rug.flags?.length) lines.push(`🚩 Flags: \`${rug.flags.join(", ")}\``);

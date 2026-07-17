@@ -92,6 +92,13 @@ export async function getRugAnalysis(
   return result;
 }
 
+function n(v: unknown): number | undefined {
+  if (v == null) return undefined;
+  if (typeof v !== "number") return undefined;
+  if (!Number.isFinite(v)) return undefined;
+  return v;
+}
+
 export function buildRugFromApi(api: PumpCoinsRugAnalysis): RugInfo {
   const c = api.checks;
   return {
@@ -100,21 +107,21 @@ export function buildRugFromApi(api: PumpCoinsRugAnalysis): RugInfo {
     score: c.rugScore,
     mintRevoked: c.mintRevoked,
     freezeRevoked: c.freezeRevoked,
-    lpLockedPct: c.lpLockedPct,
+    lpLockedPct: n(c.lpLockedPct),
     lpLocked: c.lpLocked,
     rugScoreOk: c.rugScoreOk,
-    top10Pct: c.top10Pct,
+    top10Pct: n(c.top10Pct),
     top10Ok: c.top10Ok,
     established: c.established,
-    liquidityUsd: api.liquidityUsd,
+    liquidityUsd: n(api.liquidityUsd),
     liquidityOk: c.liquidityOk,
     hasPool: c.hasPool,
-    pairAgeHours: api.pairAgeHours,
-    volume24h: api.volume24h,
-    fdv: api.fdv,
-    priceChange24h: api.priceChange24h,
-    priceUsd: api.priceUsd,
+    pairAgeHours: n(api.pairAgeHours),
+    volume24h: n(api.volume24h),
+    fdv: n(api.fdv),
+    priceChange24h: n(api.priceChange24h),
+    priceUsd: n(api.priceUsd),
     dex: api.dex,
-    flags: api.flags.length > 0 ? api.flags : undefined,
+    flags: api.flags?.length ? api.flags : undefined,
   };
 }
