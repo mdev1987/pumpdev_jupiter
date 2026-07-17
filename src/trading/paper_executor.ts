@@ -5,6 +5,7 @@ import { TradeStore } from "./trade_store";
 import { PriceRouter, type PriceResult } from "./price_provider";
 import { getSolUsdRate } from "../utils/sol_usd";
 import { notifyBuyOpened, notifyTradeClosed } from "../telegram/telegram_bot";
+import type { RugInfo } from "../utils/rug_check";
 
 function allowBuy(balance: number, amount: number): boolean {
   if (amount > CONFIG.maxPositionSol) return false;
@@ -26,6 +27,7 @@ export interface BuySignal {
     stopMint?: boolean;
     noBlacklist?: boolean;
   };
+  rug?: RugInfo;
 }
 
 export class PaperExecutor {
@@ -93,6 +95,7 @@ export class PaperExecutor {
       signal.riskScore,
       signal.securityFlags,
       "pumpdev",
+      signal.rug,
     );
 
     console.log(`[Executor] Bought ${signal.token} @ ${entryPriceSOL} SOL ($${signal.priceUSD} @ ${solUsd} SOL/USD)`);

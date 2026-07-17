@@ -9,6 +9,21 @@ export async function getSolUsdRate(): Promise<number> {
     return cached.rate;
   }
 
+  // 1. PumpCoins SOL price
+  try {
+    const res = await fetch("https://pumpcoins.net/api/sol-price", {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { usd: number };
+      if (Number.isFinite(body.usd) && body.usd > 0) {
+        cached = { rate: body.usd, timestamp: Date.now() };
+        return body.usd;
+      }
+    }
+  } catch {}
+
+  // 2. crypull
   try {
     const data = await crypull.price("SOL");
     if (data?.priceUsd && data.priceUsd > 0) {
@@ -17,6 +32,7 @@ export async function getSolUsdRate(): Promise<number> {
     }
   } catch {}
 
+  // 3. Jupiter Price API v3
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (CONFIG.jupiterApiKey) headers["x-api-key"] = CONFIG.jupiterApiKey;
@@ -27,8 +43,9 @@ export async function getSolUsdRate(): Promise<number> {
     );
     if (res.ok) {
       const body = (await res.json()) as Record<string, { usdPrice: number }>;
-      const rate = body[SOL_MINT]?.usdPrice;
-      if (Number.isFinite(rate) && rate > 0) {
+      const entry = body[SOL_MINT];
+      if (entry && Number.isFinite(entry.usdPrice) && entry.usdPrice > 0) {
+        const rate = entry.usdPrice;
         cached = { rate, timestamp: Date.now() };
         return rate;
       }

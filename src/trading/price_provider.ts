@@ -35,8 +35,9 @@ export class JupiterPriceProvider implements PriceProvider {
       }
 
       const data = (await res.json()) as Record<string, { usdPrice: number }>;
-      const tokenPriceUSD = data[mint]?.usdPrice;
-      if (!Number.isFinite(tokenPriceUSD) || tokenPriceUSD <= 0) return null;
+      const entry = data[mint];
+      const tokenPriceUSD = entry?.usdPrice;
+      if (!tokenPriceUSD || !Number.isFinite(tokenPriceUSD) || tokenPriceUSD <= 0) return null;
 
       const solUsd = await getSolUsdRate();
       return tokenPriceUSD / solUsd;

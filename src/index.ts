@@ -13,6 +13,7 @@ import { PaperExecutor } from "./trading/paper_executor";
 import { TradeStore } from "./trading/trade_store";
 import { PumpDevPriceProvider, JupiterPriceProvider, PriceRouter } from "./trading/price_provider";
 import { getSolUsdRate } from "./utils/sol_usd";
+import { getRugAnalysis, buildRugFromApi } from "./utils/rug_check";
 
 import { startPumpDevListener, stopPumpDevListener } from "./pumpdev/listener";
 
@@ -123,6 +124,24 @@ if (CONFIG.telegramChannelUserName) {
 
 signalQueued$.subscribe(async (queued) => {
   const s = queued.signal;
+
+  let rug: import("./utils/rug_check").RugInfo | undefined;
+  try {
+    if (s.CA) {
+      const apiResult = await getRugAnalysis(s.CA);
+      rug = buildRugFromApi(apiResult);
+    }
+  } catch {
+    if (s.security) {
+      rug = {
+        source: "signal",
+        score: s.security.score ?? 0,
+        mintRevoked: s.security.stopMint,
+        freezeRevoked: s.security.noBlacklist,
+      };
+    }
+  }
+
   const bought = await executor.buy({
     token: s.Token ?? "UNKNOWN",
     ca: s.CA ?? "",
@@ -137,6 +156,7 @@ signalQueued$.subscribe(async (queued) => {
       stopMint: s.security.stopMint,
       noBlacklist: s.security.noBlacklist,
     } : undefined,
+    rug,
   });
 
   if (bought && s.CA) {

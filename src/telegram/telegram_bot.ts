@@ -111,6 +111,7 @@ export function notifyBuyOpened(
   riskScore?: number,
   securityFlags?: { ownershipRenounced?: boolean; top10HoldingsBelow30Pct?: boolean; stopMint?: boolean; noBlacklist?: boolean },
   priceSource?: string,
+  rug?: import("../utils/rug_check").RugInfo,
 ): void {
   const lines = [
     `🟢 **Position Opened**`,
@@ -125,22 +126,52 @@ export function notifyBuyOpened(
   if (mcap) lines.push(`📊 MCap: \`${fmtMcap(mcap)}\``);
   lines.push(`🏛 Dex: \`${dex ?? "—"}\``);
 
-  if (riskLevel) {
-    const score = riskScore !== undefined ? ` (${riskScore})` : "";
-    lines.push(`🛡 Risk: \`${fmtRiskLevel(riskLevel)}${score}\``);
+  if (rug?.source === "pumpcoins") {
+    const v = rug.verdict;
+    const badge = v === "PASS" ? "🟢" : v === "WARN" ? "🟡" : "🔴";
+    lines.push(`🛡 Rug: ${badge} \`${v ?? "?"}\` (score: \`${rug.score}\`)`);
+    if (rug.established !== undefined) {
+      const est = rug.established ? "✅" : "❌";
+      const mintR = rug.mintRevoked ? "✅" : "❌";
+      const freezeR = rug.freezeRevoked ? "✅" : "❌";
+      lines.push(`🔒 Established: ${est} · Mint: ${mintR} · Freeze: ${freezeR}`);
+    }
+    const lpLine: string[] = [];
+    if (rug.lpLockedPct !== undefined) lpLine.push(`LP: ${rug.lpLockedPct.toFixed(1)}%`);
+    if (rug.top10Pct !== undefined) lpLine.push(`Top10: ${rug.top10Pct.toFixed(1)}%`);
+    if (rug.pairAgeHours !== undefined) lpLine.push(`Age: ${rug.pairAgeHours.toFixed(0)}h`);
+    if (lpLine.length) lines.push(`🔐 \`${lpLine.join(" · ")}\``);
+    if (rug.priceUsd !== undefined) {
+      const liq = rug.liquidityUsd !== undefined ? ` · Liq: $${fmtShort(rug.liquidityUsd)}` : "";
+      const vol = rug.volume24h !== undefined ? ` · Vol: $${fmtShort(rug.volume24h)}` : "";
+      const fdv = rug.fdv !== undefined ? ` · FDV: $${fmtShort(rug.fdv)}` : "";
+      lines.push(`📊 $${rug.priceUsd}${liq}${vol}${fdv}`);
+    }
+    if (rug.flags?.length) lines.push(`🚩 Flags: \`${rug.flags.join(", ")}\``);
+  } else if (rug?.source === "signal") {
+    const badge = rug.score <= 1 ? "🟢" : rug.score <= 3 ? "🟡" : "🔴";
+    lines.push(`🛡 Risk: ${badge} \`Signal\` (score: \`${rug.score}\`)`);
+    const parts: string[] = [];
+    if (rug.mintRevoked !== undefined) parts.push(`Mint: ${rug.mintRevoked ? "✅" : "❌"}`);
+    if (rug.freezeRevoked !== undefined) parts.push(`Freeze: ${rug.freezeRevoked ? "✅" : "❌"}`);
+    if (parts.length) lines.push(`🔒 ${parts.join(" · ")}`);
+  } else {
+    if (riskLevel) {
+      const score = riskScore !== undefined ? ` (${riskScore})` : "";
+      lines.push(`🛡 Risk: \`${fmtRiskLevel(riskLevel)}${score}\``);
+    }
+    if (securityFlags) {
+      const f = (ok: boolean | undefined, label: string) => `🔍 ${label}: ${ok ? "✅" : "❌"}`;
+      lines.push(
+        f(securityFlags.ownershipRenounced, "Ownership renounced"),
+        f(securityFlags.top10HoldingsBelow30Pct, "Top10 <30%"),
+        f(securityFlags.stopMint, "Mint stopped"),
+        f(securityFlags.noBlacklist, "No blacklist"),
+      );
+    }
   }
-  if (priceSource) lines.push(`📡 Price: \`${priceSource}\``);
 
-  if (securityFlags) {
-    const f = (ok: boolean | undefined, label: string) =>
-      `🔍 ${label}: ${ok ? "✅" : "❌"}`;
-    lines.push(
-      f(securityFlags.ownershipRenounced, "Ownership renounced"),
-      f(securityFlags.top10HoldingsBelow30Pct, "Top10 <30%"),
-      f(securityFlags.stopMint, "Mint stopped"),
-      f(securityFlags.noBlacklist, "No blacklist"),
-    );
-  }
+  if (priceSource) lines.push(`📡 Price: \`${priceSource}\``);
 
   if (openPositions !== undefined) {
     const wr = winRate !== undefined ? ` · Win rate: \`${(winRate * 100).toFixed(0)}%\`` : "";
@@ -148,6 +179,13 @@ export function notifyBuyOpened(
   }
 
   sendTelegram(lines.join("\n"));
+}
+
+function fmtShort(n: number): string {
+  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(2) + "B";
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(2) + "K";
+  return n.toFixed(2);
 }
 
 export function notifyBuyRejected(
