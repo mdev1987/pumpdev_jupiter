@@ -9,6 +9,7 @@ import { PaperExecutor } from "./trading/paper_executor";
 import { TradeStore } from "./trading/trade_store";
 import { PumpDevPriceProvider, JupiterPriceProvider, PriceRouter } from "./trading/price_provider";
 import { getSolUsdRate } from "./utils/sol_usd";
+import { initTelegramBot, shutdownTelegramBot } from "./telegram/telegram_bot";
 
 import { startPumpDevListener, stopPumpDevListener } from "./pumpdev/listener";
 import { startPumpAPIListener, stopPumpAPIListener } from "./pumpapi/listener";
@@ -150,6 +151,7 @@ setExecuteHandler(async (scored: ScoredToken) => {
 // Start
 // ---------------------------------------------------------------------------
 
+initTelegramBot();
 startPumpDevListener(positions, pumpDevPrices);
 startPumpAPIListener();
 startPipeline();
@@ -167,6 +169,7 @@ async function shutdown() {
   stopPipeline();
   stopPumpDevListener();
   stopPumpAPIListener();
+  shutdownTelegramBot();
   store.close();
   process.exit(0);
 }
