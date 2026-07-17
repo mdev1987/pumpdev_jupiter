@@ -34,7 +34,9 @@ function connect(
 
   ws.onmessage = (raw) => {
     try {
-      const e = JSON.parse(raw.data as string);
+      const rawData = raw.data;
+      const text = typeof rawData === "string" ? rawData : rawData instanceof Buffer ? rawData.toString() : rawData instanceof ArrayBuffer ? new TextDecoder().decode(rawData) : String(rawData);
+      const e = JSON.parse(text);
 
       if (e.txType === "create") {
         const mintRevoked = false;

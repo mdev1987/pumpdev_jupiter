@@ -26,7 +26,9 @@ function connect() {
 
   ws.onmessage = (raw) => {
     try {
-      const event = JSON.parse(raw.data as string);
+      const rawData = raw.data;
+      const text = typeof rawData === "string" ? rawData : rawData instanceof Buffer ? rawData.toString() : rawData instanceof ArrayBuffer ? new TextDecoder().decode(rawData) : String(rawData);
+      const event = JSON.parse(text);
       if (event.action !== "create") return;
       if (event.pool !== "pump") return;
 
