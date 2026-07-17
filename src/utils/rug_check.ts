@@ -88,6 +88,9 @@ export async function getRugAnalysis(
   }
 
   const result = await res.json() as PumpCoinsRugAnalysis;
+  if (!result || typeof result !== "object") {
+    throw new Error(`PumpCoins API returned non-object: ${JSON.stringify(result).slice(0, 200)}`);
+  }
   rugCache.set(mint, { result, at: Date.now() });
   return result;
 }
@@ -101,6 +104,13 @@ function n(v: unknown): number | undefined {
 
 export function buildRugFromApi(api: PumpCoinsRugAnalysis): RugInfo {
   const c = api.checks;
+  if (!c) {
+    return {
+      source: "pumpcoins",
+      score: 10,
+      flags: api.flags?.length ? api.flags : undefined,
+    };
+  }
   return {
     source: "pumpcoins",
     verdict: api.verdict,
