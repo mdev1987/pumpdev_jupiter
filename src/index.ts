@@ -3,19 +3,15 @@ import { Subject, interval } from "rxjs";
 import { CONFIG } from "./config";
 import { PriceSource } from "./strategy/types";
 
-import { initTelegramBot, shutdownTelegramBot } from "./telegram/telegram_bot";
-import { startTelegramListener, stopTelegramListener } from "./telegram/telegram_client";
-import { initSignalQueue, stopSignalQueue, enqueueSignal, signalQueued$ } from "./telegram/telegram_signal_queue";
-
 import { PaperWallet } from "./trading/paper_wallet";
 import { PositionManager } from "./trading/position";
 import { PaperExecutor } from "./trading/paper_executor";
 import { TradeStore } from "./trading/trade_store";
 import { PumpDevPriceProvider, JupiterPriceProvider, PriceRouter } from "./trading/price_provider";
 import { getSolUsdRate } from "./utils/sol_usd";
-import { getRugAnalysis, buildRugFromApi } from "./utils/rug_check";
 
 import { startPumpDevListener, stopPumpDevListener } from "./pumpdev/listener";
+import { startPumpAPIListener, stopPumpAPIListener } from "./pumpapi/listener";
 
 import { PositionEngine } from "./strategy/engine";
 import { registerStrategies, exitDecision$, clearPendingExit } from "./strategy/scanner";
@@ -26,6 +22,9 @@ import { TtlStrategy } from "./strategy/exit-strategies/ttl";
 import { PartialTakeProfitStrategy } from "./strategy/exit-strategies/partial-tp";
 import { ExitAction } from "./strategy/exit-strategies/types";
 import type { ExitDecision } from "./strategy/exit-strategies/types";
+
+import { startPipeline, stopPipeline, setExecuteHandler } from "./pipeline/pipeline";
+import type { ScoredToken } from "./pipeline/pipeline";
 
 const wallet = new PaperWallet(CONFIG.paperBalanceSol);
 const positions = new PositionManager();
@@ -112,77 +111,48 @@ function getStrategyPositions() {
 }
 
 // ---------------------------------------------------------------------------
-// Telegram
+// Pipeline — new token processing
 // ---------------------------------------------------------------------------
 
-initTelegramBot();
+setExecuteHandler(async (scored: ScoredToken) => {
+  const { event, rug } = scored;
 
-if (CONFIG.telegramChannelUserName) {
-  startTelegramListener().catch((err) => console.error("[Main] Telegram listener error:", err));
-  initSignalQueue(CONFIG.telegramChannelUserName);
-}
-
-signalQueued$.subscribe(async (queued) => {
-  const s = queued.signal;
-
-  let rug: import("./utils/rug_check").RugInfo | undefined;
-  try {
-    if (s.CA) {
-      const apiResult = await getRugAnalysis(s.CA);
-      rug = buildRugFromApi(apiResult);
-    }
-  } catch {
-    if (s.security) {
-      rug = {
-        source: "signal",
-        score: s.security.score ?? 0,
-        mintRevoked: s.security.stopMint,
-        freezeRevoked: s.security.noBlacklist,
-      };
-    }
-  }
+  const solUsd = await getSolUsdRate();
+  const priceSOL = event.price ?? (event.marketCapQuote != null ? event.marketCapQuote / 1_000_000_000 : 0);
+  const entryPriceUSD = priceSOL * solUsd;
 
   const bought = await executor.buy({
-    token: s.Token ?? "UNKNOWN",
-    ca: s.CA ?? "",
-    priceUSD: s.initPriceUSD ?? 0,
-    dex: s.dex,
-    mcap: s.marketCapUSD,
-    riskLevel: s.security?.riskLevel,
-    riskScore: s.security?.score,
-    securityFlags: s.security ? {
-      ownershipRenounced: s.security.ownershipRenounced,
-      top10HoldingsBelow30Pct: s.security.top10HoldingsBelow30Pct,
-      stopMint: s.security.stopMint,
-      noBlacklist: s.security.noBlacklist,
-    } : undefined,
+    token: event.name,
+    ca: event.mint,
+    priceUSD: entryPriceUSD,
+    dex: event.pool,
+    mcap: event.marketCapQuote,
     rug,
   });
 
-  if (bought && s.CA) {
-    const solUsd = await getSolUsdRate();
-    const entryPriceSOL = s.initPriceUSD ? s.initPriceUSD / solUsd : 0;
+  if (bought) {
     addPosition(
-      s.CA,
-      s.CA,
-      s.Token ?? "UNKNOWN",
-      entryPriceSOL,
+      event.mint,
+      event.mint,
+      event.name,
+      priceSOL,
       CONFIG.positionSizeSol,
-      { marketCapUSD: s.marketCapUSD, dex: s.dex },
+      { marketCapUSD: event.marketCapQuote, dex: event.pool },
       "SOL",
     );
-  }
-
-  if (!bought) {
-    enqueueSignal(queued);
+    console.log(`[Pipeline] Bought ${event.symbol}`);
+  } else {
+    console.log(`[Pipeline] Skipped ${event.symbol} (buy rejected)`);
   }
 });
 
 // ---------------------------------------------------------------------------
-// PumpDev + Engine start
+// Start
 // ---------------------------------------------------------------------------
 
 startPumpDevListener(positions, pumpDevPrices);
+startPumpAPIListener();
+startPipeline();
 engine.start();
 
 console.log(`Bot started — ${wallet.getBalance()} SOL, ${positions.count()} positions`);
@@ -194,10 +164,9 @@ console.log(`Bot started — ${wallet.getBalance()} SOL, ${positions.count()} po
 async function shutdown() {
   console.log("\nShutting down...");
   engine.stop();
+  stopPipeline();
   stopPumpDevListener();
-  stopSignalQueue();
-  await stopTelegramListener().catch(() => {});
-  shutdownTelegramBot();
+  stopPumpAPIListener();
   store.close();
   process.exit(0);
 }

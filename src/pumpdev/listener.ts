@@ -1,10 +1,15 @@
+import { Subject } from "rxjs";
 import { CONFIG } from "../config";
 import { PositionManager } from "../trading/position";
 import { PumpDevPriceProvider } from "../trading/price_provider";
+import type { NewTokenEvent } from "../pipeline/types";
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let subscribedMints = new Set<string>();
+let subscribedNewTokens = false;
+
+export const pumpdevNewToken$ = new Subject<NewTokenEvent>();
 
 function connect(
   positions: PositionManager,
@@ -22,12 +27,39 @@ function connect(
 
   ws.onopen = () => {
     console.log("[PumpDev] Connected");
+    subscribedNewTokens = false;
+    subscribedMints.clear();
     syncSubscriptions(positions);
   };
 
   ws.onmessage = (raw) => {
     try {
       const e = JSON.parse(raw.data as string);
+
+      if (e.txType === "create") {
+        const mintRevoked = false;
+        const freezeRevoked = false;
+
+        pumpdevNewToken$.next({
+          source: "pumpdev",
+          mint: e.mint,
+          name: e.name ?? "Unknown",
+          symbol: e.symbol ?? "???",
+          uri: e.uri,
+          pool: "pump",
+          initialBuy: e.initialBuy,
+          marketCapQuote: e.marketCapSol != null ? e.marketCapSol * (CONFIG.solUsdFallback ?? 150) : undefined,
+          solAmount: e.solAmount,
+          price: e.marketCapSol != null ? e.marketCapSol / 1_000_000_000 : undefined,
+          mintRevoked,
+          freezeRevoked,
+          txSigner: e.traderPublicKey,
+          signature: e.signature,
+          timestamp: Date.now(),
+        });
+
+        return;
+      }
 
       if ((e.txType === "buy" || e.txType === "sell") && e.solAmount && e.tokenAmount) {
         const solAmount = Number(e.solAmount);
@@ -70,6 +102,11 @@ function scheduleReconnect(
 }
 
 function syncSubscriptions(positions: PositionManager) {
+  if (!subscribedNewTokens) {
+    ws?.send(JSON.stringify({ method: "subscribeNewToken" }));
+    subscribedNewTokens = true;
+  }
+
   const held = new Set(positions.all().map((p) => p.ca));
   const toAdd = [...held].filter((m) => !subscribedMints.has(m));
   const toRemove = [...subscribedMints].filter((m) => !held.has(m));
@@ -109,4 +146,5 @@ export function stopPumpDevListener() {
     ws = null;
   }
   subscribedMints.clear();
+  subscribedNewTokens = false;
 }
