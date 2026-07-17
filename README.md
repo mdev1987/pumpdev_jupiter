@@ -13,18 +13,18 @@ bun start
 ## How it Works
 
 1. **Signal** — Telegram listener captures Ave Scanner signals → parsed into token/CA/price/dex/security
-2. **Buy** — PaperExecutor seeds PumpDev cache with entry price, stores position in SQLite, notifies Telegram
-3. **Track** — PriceTracker polls every 5s: PumpDev WS cache (30s TTL) → Jupiter Price API v3 fallback
-4. **Exit** — Risk engine checks SL/TP/trailing/TTL every tick → sells via PaperExecutor
+2. **Buy** — PaperExecutor seeds PumpDev cache, stores trade in SQLite, notifies Telegram, adds position to strategy store
+3. **Track** — Price stream polls every 5s → pushes `PriceInfo` into `PositionEngine` → updates strategy store prices
+4. **Exit** — `PositionEngine` runs registered exit strategies (StopLoss, TrailingStop, TTL, PartialTP) on each scan interval. First strategy that triggers wins → `exitDecision$` emits → `PaperExecutor.sell()` executes
 5. **Queue** — Rejected buys (max positions) re-enqueue with TTL
 
 ## Price Chain
 
-| Source | Priority | Caveat |
+| Source | Priority | Use |
 |---|---|---|
 | `crypull.price('SOL')` | SOL/USD rate | Aggregates Binance, CoinGecko, etc. |
 | Jupiter Price API v3 | Token USD price | Requires `JUPITER_API_KEY` |
-| PumpDev WS | Token price for pump.fun tokens | Seeded on buy, refreshed by WS trade events |
+| PumpDev WS | Token SOL price | Seeded on buy, refreshed by WS trade events |
 
 ## Config
 
@@ -34,28 +34,37 @@ See `.env.example` — all params with defaults in `src/config.ts`.
 
 ```
 src/
-├── index.ts                     # Wiring: signal → buy → track → exit
-├── config.ts                    # Env-based config
-├── types.ts                     # Signal, Position, TradeRecord
+├── index.ts                    # Wiring: signal → buy → engine → exit
+├── config.ts                   # Env-based config with types
+├── types.ts                    # Signal, TradeRecord
 ├── telegram/
-│   ├── telegram_bot.ts          # GrammY notifications (open/close/report)
-│   ├── telegram_client.ts       # MTProto listener for Ave Scanner
-│   ├── telegram_signal_queue.ts # TTL queue with dedup
-│   └── ave_scanner_parser.ts    # Signal text → structured data
+│   ├── telegram_bot.ts         # GrammY notifications
+│   ├── telegram_client.ts      # MTProto listener
+│   ├── telegram_signal_queue.ts# TTL queue with dedup
+│   └── ave_scanner_parser.ts   # Signal text → structured data
 ├── trading/
-│   ├── paper_executor.ts        # Buy/sell with USD↔SOL conversion
-│   ├── paper_wallet.ts          # Balance tracking
-│   ├── position.ts              # Open position registry
-│   ├── price_tracker.ts         # Poll loop + exit evaluation
-│   ├── price_provider.ts        # PumpDev cache, Jupiter v3, PriceRouter
-│   ├── risk.ts                  # allowBuy + evaluateExit (SL/TP/trailing/TTL)
-│   └── trade_store.ts           # bun:sqlite
+│   ├── paper_executor.ts       # Buy/sell with USD↔SOL conversion
+│   ├── paper_wallet.ts         # Balance tracking
+│   ├── position.ts             # PositionManager (CA-keyed, used by pumpdev WS)
+│   ├── price_provider.ts       # PumpDev cache, Jupiter v3, PriceRouter
+│   └── trade_store.ts          # bun:sqlite
+├── strategy/
+│   ├── types.ts                # Position, PriceInfo, ExitDecision, enums
+│   ├── store.ts                # Position repository (Map + RxJS subjects)
+│   ├── scanner.ts              # Strategy registry + scan loop + exitDecision$
+│   ├── engine.ts               # RxJS engine: price stream → store → scanner
+│   └── exit-strategies/
+│       ├── types.ts            # ExitStrategy interface
+│       ├── stop-loss.ts        # Close at configured loss %
+│       ├── trailing-stop.ts    # Trail from peak after activation %
+│       ├── partial-tp.ts       # Scale out at configurable tiers
+│       └── ttl.ts              # Base expiry + auto-renew + hard cap
 ├── pumpdev/
-│   └── listener.ts              # WS subscribeTokenTrade
+│   └── listener.ts             # WS subscribeTokenTrade
 ├── jupiter/
-│   └── price.ts                 # Re-exports JupiterPriceProvider
+│   └── price.ts                # Re-exports JupiterPriceProvider
 └── utils/
-    └── sol_usd.ts               # crypull → Jupiter v3 → 150 fallback
+    └── sol_usd.ts              # crypull → Jupiter v3 → 150 fallback
 ```
 
 ## Telegram Messages

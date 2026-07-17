@@ -1,8 +1,21 @@
+export interface PartialTpTier {
+  at: number;
+  pct: number;
+}
+
 function number(key: string, fallback: number): number {
   const raw = process.env[key];
   if (raw === undefined || raw === "") return fallback;
   const n = Number(raw);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function parseTiers(raw?: string): PartialTpTier[] {
+  if (!raw) return [];
+  return raw.split(";").map((t) => {
+    const [at, pct] = t.split(",");
+    return { at: Number(at), pct: Number(pct) };
+  }).filter((t) => Number.isFinite(t.at) && Number.isFinite(t.pct));
 }
 
 export const CONFIG = {
@@ -33,6 +46,9 @@ export const CONFIG = {
 
   baseTtlSecs: number("BASE_TTL_SECS", 90),
   maxTtlSecs: number("MAX_TTL_SECS", 600),
+  ttlRenewThresholdPct: number("TTL_RENEW_THRESHOLD_PERCENT", 8) / 100,
+
+  partialTpTiers: parseTiers(process.env.PARTIAL_TP_TIERS),
 
   pumpdevApiKey: process.env.PUMPDEV_API_KEY,
   pumpdevWsUrl: process.env.PUMPDEV_WS_URL ?? "wss://pumpdev.io/ws",
@@ -42,7 +58,9 @@ export const CONFIG = {
   jupiterBaseUrl: process.env.JUPITER_BASE_URL ?? "https://api.jup.ag/swap/v2",
 
   pricePollIntervalMs: number("PRICE_POLL_INTERVAL_MS", 5000),
+  positionScanIntervalMs: number("POSITION_SCAN_INTERVAL_MS", 5000),
   dbPath: process.env.DB_PATH ?? "./data/trades.db",
 
   solUsdFallback: number("SOL_USD_FALLBACK", 150),
+  logLevel: process.env.LOG_LEVEL ?? "info",
 };

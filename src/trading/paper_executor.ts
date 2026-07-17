@@ -1,11 +1,16 @@
 import { CONFIG } from "../config";
 import { PaperWallet } from "./paper_wallet";
 import { PositionManager } from "./position";
-import { allowBuy } from "./risk";
 import { TradeStore } from "./trade_store";
 import { PriceRouter, type PriceResult } from "./price_provider";
 import { getSolUsdRate } from "../utils/sol_usd";
 import { notifyBuyOpened, notifyTradeClosed } from "../telegram/telegram_bot";
+
+function allowBuy(balance: number, amount: number): boolean {
+  if (amount > CONFIG.maxPositionSol) return false;
+  if (balance < amount) return false;
+  return true;
+}
 
 export interface BuySignal {
   token: string;
