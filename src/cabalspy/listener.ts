@@ -99,13 +99,23 @@ This is the one I'd optimize for eventual live trading.
         blockchain: "solana",
         token: "*",
         kol: {
-          min_buy: 0.1,
-          entry_at: [1],
+          min_buy: 0.4,
+          entry_at: [2, 3],
           exit_at: [1],
+          max_wallet_buy: 10,
         },
+        smart: {
+          min_buy: 0.75,
+          entry_at: [2],
+          exit_at: [1],
+          max_wallet_buy: 15,
+        },
+        min_win_rate: 55,
+        min_token_age: 0,
+        max_token_age: 24,
       }),
     );
-    console.log("[CabalSpy] Subscribed (kol entry_at=[1])");
+    console.log("[CabalSpy] Subscribed — KOL entry_at=[2,3] min_buy=0.4 / Smart entry_at=[2] min_buy=0.75");
   };
 
   ws.onmessage = async (raw) => {
@@ -121,7 +131,12 @@ This is the one I'd optimize for eventual live trading.
               : String(rawData);
       const msg = JSON.parse(text);
 
-      if (msg.event !== "signal") return;
+      if (msg.event !== "signal") {
+        if (msg.event === "subscribed" || msg.event === "error") {
+          console.log(`[CabalSpy] Server:`, JSON.stringify(msg));
+        }
+        return;
+      }
       if (!msg.data) return;
 
       const d = msg.data;
@@ -140,6 +155,13 @@ This is the one I'd optimize for eventual live trading.
       const unrealizedPnlPct = cluster?.unrealized_pnl_pct;
 
       if (kind === "entry") {
+        // Skip weak clusters — require at least 2 SOL total invested
+        const MIN_CLUSTER_SOL = 2;
+        if (!totalInvested || totalInvested < MIN_CLUSTER_SOL) {
+          console.log(`[CabalSpy] Skip ${symbol} — cluster ${totalInvested ?? 0} SOL < ${MIN_CLUSTER_SOL} SOL`);
+          return;
+        }
+
         let dexMcap: number | undefined;
         let dexPrice: number | undefined;
         try {
