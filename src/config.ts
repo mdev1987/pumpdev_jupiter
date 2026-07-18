@@ -54,6 +54,8 @@ export const CONFIG = {
   pumpdevWsUrl: process.env.PUMPDEV_WS_URL ?? "wss://pumpdev.io/ws",
   pumpdevBaseUrl: process.env.PUMPDEV_BASE_URL ?? "https://pumpdev.io",
 
+  cabalspyApiKey: process.env.CABALSPY_API_KEY,
+
   jupiterApiKey: process.env.JUPITER_API_KEY,
   jupiterBaseUrl: process.env.JUPITER_BASE_URL ?? "https://api.jup.ag/swap/v2",
 

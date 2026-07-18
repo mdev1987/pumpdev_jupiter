@@ -13,6 +13,7 @@ import { initTelegramBot, shutdownTelegramBot } from "./telegram/telegram_bot";
 
 import { startPumpDevListener, stopPumpDevListener } from "./pumpdev/listener";
 import { startPumpAPIListener, stopPumpAPIListener } from "./pumpapi/listener";
+import { startCabalSpy, stopCabalSpy } from "./cabalspy/listener";
 
 import { PositionEngine } from "./strategy/engine";
 import { registerStrategies, exitDecision$, clearPendingExit } from "./strategy/scanner";
@@ -152,6 +153,7 @@ setExecuteHandler(async (scored: ScoredToken) => {
 // ---------------------------------------------------------------------------
 
 initTelegramBot();
+startCabalSpy(executor);
 startPumpDevListener(positions, pumpDevPrices);
 startPumpAPIListener();
 startPipeline();
@@ -167,6 +169,7 @@ async function shutdown() {
   console.log("\nShutting down...");
   engine.stop();
   stopPipeline();
+  stopCabalSpy();
   stopPumpDevListener();
   stopPumpAPIListener();
   shutdownTelegramBot();
