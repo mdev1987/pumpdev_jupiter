@@ -8,6 +8,7 @@ import {
   fmtPct,
 } from "../telegram/telegram_bot";
 import type { PaperExecutor } from "../trading/paper_executor";
+import { DexScreenerPriceProvider } from "../trading/price_provider";
 
 const WS_URL = "wss://stream.cabalspy.xyz";
 
@@ -128,7 +129,7 @@ This is the one I'd optimize for eventual live trading.
       const symbol = d.token?.symbol ?? "???";
       const name = d.token?.name ?? "Unknown";
       const mcap = d.token?.market_cap;
-      const mcapUsd = d.token?.market_cap_usd;
+      let mcapUsd = d.token?.market_cap_usd;
 
       const cluster = d.cluster;
       const wallets = d.wallets ?? [];
@@ -138,6 +139,19 @@ This is the one I'd optimize for eventual live trading.
       const unrealizedPnlPct = cluster?.unrealized_pnl_pct;
 
       if (kind === "entry") {
+        let dexMcap: number | undefined;
+        let dexPrice: number | undefined;
+        try {
+          const pools = await new DexScreenerPriceProvider().getPools(mint);
+          const pool = pools[0];
+          if (pool) {
+            const pn = Number(pool.priceNative);
+            if (Number.isFinite(pn) && pn > 0) dexPrice = pn;
+            if (pool.marketCap) dexMcap = pool.marketCap;
+            if (!mcapUsd && pool.fdv) mcapUsd = pool.fdv;
+          }
+        } catch {}
+
         let rugStr = "";
         let apiResult: Awaited<ReturnType<typeof getRugAnalysis>> | undefined;
         try {
@@ -149,7 +163,7 @@ This is the one I'd optimize for eventual live trading.
               : rug.verdict === "WARN"
                 ? "🟡"
                 : "🔴";
-          rugStr = `${badge} Verdict: ${rug.verdict ?? "?"} · Score: ${rug.score}`;
+          rugStr = `${badge} Verdict: ${rug.verdict ?? "N/A"} · Score: ${rug.score}`;
           if (rug.mintRevoked !== undefined)
             rugStr += ` · Mint: ${rug.mintRevoked ? "✅" : "❌"}`;
           if (rug.freezeRevoked !== undefined)
@@ -165,7 +179,7 @@ This is the one I'd optimize for eventual live trading.
             `━━━━━━━━━━━━━━━━━━━`,
             `🔖 Token: \`${name}\` (\`${symbol}\`)`,
             `🔗 Mint: \`${mint}\``,
-            `📊 MCap: ${fmtMcap(mcapUsd ?? 0)}`,
+            `📊 MCap: ${fmtMcap(mcapUsd ?? dexMcap ?? 0)}`,
             rugStr,
             ...(rug.priceUsd != null ? [`💵 Price: $${rug.priceUsd}`] : []),
           ].join("\n");
@@ -177,8 +191,9 @@ This is the one I'd optimize for eventual live trading.
         }
 
         if (executor) {
+          const displayMcap = mcapUsd ?? dexMcap ?? 0;
+          const priceSOL = dexPrice ?? 0;
           const solUsd = await getSolUsdRate();
-          const priceSOL = mcap != null ? mcap / 1_000_000_000 : 0;
           const entryPriceUSD = priceSOL * solUsd;
 
           const bought = await executor.buy({
@@ -186,7 +201,7 @@ This is the one I'd optimize for eventual live trading.
             ca: mint,
             priceUSD: entryPriceUSD,
             dex: "pump",
-            mcap: mcapUsd,
+            mcap: displayMcap,
             source: "cabalspy",
             rug: apiResult ? buildRugFromApi(apiResult) : undefined,
           });
@@ -202,7 +217,10 @@ This is the one I'd optimize for eventual live trading.
             `━━━━━━━━━━━━━━━━━━━`,
             `🔖 Token: \`${name}\``,
             `🔗 Mint: \`${mint}\``,
-            `📊 MCap: ${mcap != null ? fmtMcap(mcapUsd ?? 0) : "?"}`,
+            `📊 MCap: ${fmtMcap(displayMcap)}`,
+            dexPrice
+              ? `💵 Price: \`$${(priceSOL * solUsd).toFixed(8)}\``
+              : null,
             `👥 Wallets: \`${walletCount}\``,
             totalInvested != null
               ? `💰 Cluster invested: \`${totalInvested} SOL\``
