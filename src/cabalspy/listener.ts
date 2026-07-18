@@ -1,6 +1,7 @@
 import { CONFIG } from "../config";
 import { getRugAnalysis, buildRugFromApi } from "../utils/rug_check";
 import { getSolUsdRate } from "../utils/sol_usd";
+import { crypull } from "crypull";
 import {
   sendTelegram,
   fmtPrice,
@@ -8,7 +9,7 @@ import {
   fmtPct,
 } from "../telegram/telegram_bot";
 import type { PaperExecutor } from "../trading/paper_executor";
-import { DexScreenerPriceProvider } from "../trading/price_provider";
+import { DexScreenerPriceProvider, JupiterPriceProvider } from "../trading/price_provider";
 
 const WS_URL = "wss://stream.cabalspy.xyz";
 
@@ -126,8 +127,8 @@ This is the one I'd optimize for eventual live trading.
       const d = msg.data;
       const mint = d.mint;
       const kind = d.signal_kind;
-      const symbol = d.token?.symbol ?? "???";
-      const name = d.token?.name ?? "Unknown";
+      const symbol = d.token?.symbol || "???";
+      const name = d.token?.name || "Unknown";
       const mcap = d.token?.market_cap;
       let mcapUsd = d.token?.market_cap_usd;
 
@@ -165,6 +166,7 @@ This is the one I'd optimize for eventual live trading.
           // Retry DexScreener if no price yet (new tokens may not be indexed)
           let resolvedDexPrice = dexPrice;
           if (!resolvedDexPrice) {
+            // Retry DexScreener (3 attempts x 2s)
             for (let attempt = 0; attempt < 3; attempt++) {
               await sleep(2000);
               try {
@@ -182,6 +184,25 @@ This is the one I'd optimize for eventual live trading.
                 }
               } catch {}
               if (resolvedDexPrice) break;
+            }
+            // Fallback: crypull (multi-provider, catches tokens not in DexScreener yet)
+            if (!resolvedDexPrice) {
+              try {
+                const cp = await crypull.price(mint, "solana");
+                if (cp?.priceUsd && cp.priceUsd > 0) {
+                  const solUsd = await getSolUsdRate();
+                  resolvedDexPrice = cp.priceUsd / solUsd;
+                }
+              } catch {}
+            }
+            // Fallback: Jupiter API
+            if (!resolvedDexPrice) {
+              try {
+                const jp = await new JupiterPriceProvider().getPrice(mint);
+                if (jp && jp > 0) {
+                  resolvedDexPrice = jp;
+                }
+              } catch {}
             }
           }
 
