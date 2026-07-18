@@ -9,21 +9,10 @@ import {
   parseAveScannerSignal,
   type AveScannerSignal,
 } from "./ave_scanner_parser";
-
-/* -------------------------------------------------------------------------- */
-/*                           Configuration Validation                         */
-/* -------------------------------------------------------------------------- */
-
-if (
-  !CONFIG.telegramApiId ||
-  !CONFIG.telegramApiHash ||
-  !CONFIG.telegramChannelUserName
-) {
-  throw new Error(
-    "Missing Telegram configuration. " +
-      "telegramApiId, telegramApiHash and telegramChannelUserName are required.",
-  );
-}
+import {
+  parseAveMonitorSignal,
+  type AveMonitorSignal,
+} from "./ave_monitor_parser";
 
 /* -------------------------------------------------------------------------- */
 /*                           Telegram Client Singleton                        */
@@ -95,6 +84,7 @@ export const tgConnected$ = connectionStateInput$.pipe(
 );
 
 export const telegramSignal$ = new Subject<AveScannerSignal>();
+export const telegramAveMonitorSignal$ = new Subject<AveMonitorSignal>();
 
 let telegramChannelId: number | undefined = CONFIG.telegramChannelId
   ? Number(CONFIG.telegramChannelId)
@@ -102,6 +92,10 @@ let telegramChannelId: number | undefined = CONFIG.telegramChannelId
 
 let telegramEventHandler: ((event: NewMessageEvent) => void) | undefined;
 let telegramEventBuilder: NewMessage | undefined;
+
+let telegramChannel2Id: number | undefined;
+let telegramEventHandler2: ((event: NewMessageEvent) => void) | undefined;
+let telegramEventBuilder2: NewMessage | undefined;
 
 /* -------------------------------------------------------------------------- */
 /*                          Telegram Listener Start                           */
@@ -124,6 +118,10 @@ function reconstructWithUrls(rawMessage: string, entities: any[]): string {
 }
 
 export async function startTelegramListener(): Promise<void> {
+  if (!CONFIG.telegramApiId || !CONFIG.telegramApiHash || !CONFIG.telegramChannelUserName) {
+    throw new Error("Missing Telegram configuration: telegramApiId, telegramApiHash and telegramChannelUserName are required.");
+  }
+
   const client = getTelegramClient();
 
   try {
@@ -165,10 +163,7 @@ export async function startTelegramListener(): Promise<void> {
       const text = reconstructWithUrls(rawMessage, entities);
 
       const signal = parseAveScannerSignal(text);
-      if (!signal) {
-        console.error("[Telegram] Failed to parse signal:", text);
-        return;
-      }
+      if (!signal) return;
       console.log(
         "[Telegram] Parsed signal:",
         signal.Token,
@@ -183,6 +178,34 @@ export async function startTelegramListener(): Promise<void> {
     });
     client.addEventHandler(telegramEventHandler, telegramEventBuilder);
     console.log("[Telegram] Listener started");
+
+    // Second channel (Ave Signal Monitor)
+    if (CONFIG.telegramChannel2UserName) {
+      const entity2 = await client.getEntity(CONFIG.telegramChannel2UserName);
+      telegramChannel2Id = Number(entity2.id);
+      console.log(`[Telegram] Listening to ${CONFIG.telegramChannel2UserName} (${telegramChannel2Id})`);
+
+      telegramEventHandler2 = (event) => {
+        const msg = event.message;
+        const rawMessage = (msg as any)?.message ?? "";
+        const entities: any[] = (msg as any)?.entities ?? [];
+        const text = reconstructWithUrls(rawMessage, entities);
+
+        const signal = parseAveMonitorSignal(text);
+        if (!signal) {
+          return;
+        }
+        console.log("[Telegram/AVM] Parsed:", signal.token, signal.ca?.slice(0, 8));
+        telegramAveMonitorSignal$.next(signal);
+      };
+
+      telegramEventBuilder2 = new NewMessage({
+        incoming: true,
+        chats: [telegramChannel2Id],
+      });
+      client.addEventHandler(telegramEventHandler2, telegramEventBuilder2);
+      console.log("[Telegram/AVM] Listener started");
+    }
   } catch (error) {
     connectionStateInput$.next(false);
     console.error("[Telegram] Failed to start listener:", error);
@@ -204,8 +227,17 @@ export async function stopTelegramListener(): Promise<void> {
         console.warn("[Telegram] Failed to remove event handler on stop:", err);
       }
     }
+    if (telegramEventHandler2 && telegramEventBuilder2) {
+      try {
+        client.removeEventHandler(telegramEventHandler2, telegramEventBuilder2);
+      } catch (err) {
+        console.warn("[Telegram/AVM] Failed to remove event handler on stop:", err);
+      }
+    }
     telegramEventHandler = undefined;
     telegramEventBuilder = undefined;
+    telegramEventHandler2 = undefined;
+    telegramEventBuilder2 = undefined;
     await client.disconnect();
     console.log("[Telegram] Disconnected");
   } finally {
@@ -219,8 +251,11 @@ export async function shutdownTelegram(): Promise<void> {
   } finally {
     connectionStateInput$.next(false);
     telegramChannelId = undefined;
+    telegramChannel2Id = undefined;
     telegramEventHandler = undefined;
     telegramEventBuilder = undefined;
+    telegramEventHandler2 = undefined;
+    telegramEventBuilder2 = undefined;
     resetTelegramClient();
   }
 }

@@ -14,8 +14,16 @@ const WS_URL = "wss://stream.cabalspy.xyz";
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let executor: PaperExecutor | null = null;
+let callbacks: {
+  onBuy?: (ca: string, name: string, entryPriceUSD: number, sizeSol: number) => void;
+  onSell?: (ca: string) => void;
+} | undefined;
 
-function connect() {
+function connect(cbs?: {
+  onBuy?: (ca: string, name: string, entryPriceUSD: number, sizeSol: number) => void;
+  onSell?: (ca: string) => void;
+}) {
+  callbacks = cbs;
   const apiKey = CONFIG.cabalspyApiKey;
   if (!apiKey) {
     console.warn("[CabalSpy] No API key configured");
@@ -89,20 +97,13 @@ This is the one I'd optimize for eventual live trading.
         blockchain: "solana",
         token: "*",
         kol: {
-          min_buy: 0.5,
-          entry_at: [3, 5],
+          min_buy: 0.1,
+          entry_at: [1],
           exit_at: [1],
         },
-        smart: {
-          min_buy: 0.75,
-          entry_at: [2],
-          exit_at: [1],
-        },
-        min_win_rate: 55,
-        min_token_age: 1,
-        max_token_age: 48,
       }),
     );
+    console.log("[CabalSpy] Subscribed (kol entry_at=[1])");
   };
 
   ws.onmessage = async (raw) => {
@@ -138,8 +139,9 @@ This is the one I'd optimize for eventual live trading.
 
       if (kind === "entry") {
         let rugStr = "";
+        let apiResult: Awaited<ReturnType<typeof getRugAnalysis>> | undefined;
         try {
-          const apiResult = await getRugAnalysis(mint);
+          apiResult = await getRugAnalysis(mint);
           const rug = buildRugFromApi(apiResult);
           const badge =
             rug.verdict === "PASS"
@@ -185,7 +187,13 @@ This is the one I'd optimize for eventual live trading.
             priceUSD: entryPriceUSD,
             dex: "pump",
             mcap: mcapUsd,
+            source: "cabalspy",
+            rug: apiResult ? buildRugFromApi(apiResult) : undefined,
           });
+
+          if (bought && callbacks?.onBuy) {
+            callbacks.onBuy(mint, name, entryPriceUSD, CONFIG.positionSizeSol);
+          }
 
           const entryReport = [
             bought
@@ -212,6 +220,7 @@ This is the one I'd optimize for eventual live trading.
 
       if (kind === "exit" && executor) {
         await executor.sell(mint, "cabalspy_exit");
+        callbacks?.onSell?.(mint);
 
         const exitReport = [
           `🔴 **CabalSpy Sell — ${symbol}**`,
@@ -247,13 +256,19 @@ function scheduleReconnect() {
   if (reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    connect();
+    connect(callbacks);
   }, 5000);
 }
 
-export function startCabalSpy(ex: PaperExecutor) {
+export function startCabalSpy(
+  ex: PaperExecutor,
+  callbacks?: {
+    onBuy?: (ca: string, name: string, entryPriceUSD: number, sizeSol: number) => void;
+    onSell?: (ca: string) => void;
+  },
+) {
   executor = ex;
-  connect();
+  connect(callbacks);
 }
 
 export function stopCabalSpy() {

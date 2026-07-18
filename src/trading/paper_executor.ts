@@ -28,6 +28,7 @@ export interface BuySignal {
     noBlacklist?: boolean;
   };
   rug?: RugInfo;
+  source?: string;
 }
 
 export class PaperExecutor {
@@ -94,11 +95,11 @@ export class PaperExecutor {
       signal.riskLevel,
       signal.riskScore,
       signal.securityFlags,
-      "pumpdev",
+      signal.source ?? "pumpdev",
       signal.rug,
     );
 
-    console.log(`[Executor] Bought ${signal.token} @ ${entryPriceSOL} SOL ($${signal.priceUSD} @ ${solUsd} SOL/USD)`);
+    console.log(`[Executor] Bought ${signal.token} @ ${entryPriceSOL} SOL (src=${signal.source ?? "?"})`);
     return true;
   }
 
@@ -110,8 +111,10 @@ export class PaperExecutor {
     const priceSOL = result?.price ?? p.currentPriceSOL;
     const source = result?.source ?? "cache";
 
-    const pnl = priceSOL > 0 ? (priceSOL - p.entryPriceSOL) / p.entryPriceSOL : 0;
-    const value = p.amountSol * (1 + pnl);
+    const pnl = priceSOL > 0 && p.entryPriceSOL > 0
+      ? (priceSOL - p.entryPriceSOL) / p.entryPriceSOL
+      : 0;
+    const value = Number.isFinite(pnl) ? p.amountSol * (1 + pnl) : p.amountSol;
 
     this.wallet.deposit(value);
     this.positions.remove(ca);

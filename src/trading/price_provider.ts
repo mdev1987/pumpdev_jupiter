@@ -19,22 +19,38 @@ export class PumpDevPriceProvider implements PriceProvider {
   }
 }
 
+import https from "node:https";
+
+function httpsGet(url: string, headers: Record<string, string>): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers, timeout: 15000 }, (res) => {
+      let data = "";
+      res.on("data", (chunk) => data += chunk);
+      res.on("end", () => {
+        if (!res.statusCode || res.statusCode >= 400) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+        } else {
+          resolve(data);
+        }
+      });
+    });
+    req.on("error", reject);
+    req.on("timeout", () => { req.destroy(); reject(new Error("timeout")); });
+  });
+}
+
 export class JupiterPriceProvider implements PriceProvider {
   async getPrice(mint: string): Promise<number | null> {
     try {
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const headers: Record<string, string> = { Accept: "application/json" };
       if (CONFIG.jupiterApiKey) headers["x-api-key"] = CONFIG.jupiterApiKey;
 
-      const res = await fetch(
+      const text = await httpsGet(
         `https://api.jup.ag/price/v3?ids=${mint}`,
-        { headers, signal: AbortSignal.timeout(8000) },
+        headers,
       );
-      if (!res.ok) {
-        console.warn(`[Jupiter] /price/v3 ${res.status} for ${mint}`);
-        return null;
-      }
 
-      const data = (await res.json()) as Record<string, { usdPrice: number }>;
+      const data = JSON.parse(text) as Record<string, { usdPrice: number }>;
       const entry = data[mint];
       const tokenPriceUSD = entry?.usdPrice;
       if (!tokenPriceUSD || !Number.isFinite(tokenPriceUSD) || tokenPriceUSD <= 0) return null;
