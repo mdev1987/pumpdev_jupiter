@@ -5,6 +5,7 @@ import { NewMessage, NewMessageEvent } from "teleproto/events";
 import { BehaviorSubject, Subject } from "rxjs";
 import { distinctUntilChanged, shareReplay } from "rxjs/operators";
 import { CONFIG } from "../config";
+import { log } from "../utils/logger";
 import {
   parseAveScannerSignal,
   type AveScannerSignal,
@@ -125,18 +126,18 @@ export async function startTelegramListener(): Promise<void> {
   const client = getTelegramClient();
 
   try {
-    console.log("[Telegram] Connecting...");
+    log.info("telegram", "Connecting...");
     await client.start({
       phoneNumber: () => ask("Phone number: "),
       phoneCode: () => ask("Telegram code: "),
 
       onError(error) {
-        console.error("[Telegram]", error);
+        log.error("telegram", String(error));
       },
     });
     client.session.save();
     connectionStateInput$.next(true);
-    console.log("[Telegram] Connected");
+    log.success("telegram", "Connected");
 
     telegramChannelId = CONFIG.telegramChannelId
       ? Number(CONFIG.telegramChannelId)
@@ -145,15 +146,13 @@ export async function startTelegramListener(): Promise<void> {
       const entity = await client.getEntity(CONFIG.telegramChannelUserName);
       telegramChannelId = Number(entity.id);
     }
-    console.log(
-      `[Telegram] Listening to ${CONFIG.telegramChannelUserName} (${telegramChannelId})`,
-    );
+    log.info("telegram", `Listening to ${CONFIG.telegramChannelUserName} (${telegramChannelId})`);
 
     if (telegramEventHandler && telegramEventBuilder) {
       try {
         client.removeEventHandler(telegramEventHandler, telegramEventBuilder);
       } catch (err) {
-        console.warn("[Telegram] Failed to remove old event handler:", err);
+        log.warn("telegram", "Failed to remove old event handler:", err);
       }
     }
     telegramEventHandler = (event) => {
@@ -164,11 +163,7 @@ export async function startTelegramListener(): Promise<void> {
 
       const signal = parseAveScannerSignal(text);
       if (!signal) return;
-      console.log(
-        "[Telegram] Parsed signal:",
-        signal.Token,
-        signal.CA?.slice(0, 8),
-      );
+      log.dev("telegram", `Parsed signal: ${signal.Token} ${signal.CA?.slice(0, 8)}`);
       telegramSignal$.next(signal);
     };
 
@@ -177,13 +172,13 @@ export async function startTelegramListener(): Promise<void> {
       chats: [telegramChannelId],
     });
     client.addEventHandler(telegramEventHandler, telegramEventBuilder);
-    console.log("[Telegram] Listener started");
+    log.info("telegram", "Listener started");
 
     // Second channel (Ave Signal Monitor)
     if (CONFIG.telegramChannel2UserName) {
       const entity2 = await client.getEntity(CONFIG.telegramChannel2UserName);
       telegramChannel2Id = Number(entity2.id);
-      console.log(`[Telegram] Listening to ${CONFIG.telegramChannel2UserName} (${telegramChannel2Id})`);
+      log.info("telegram", `Listening to ${CONFIG.telegramChannel2UserName} (${telegramChannel2Id})`);
 
       telegramEventHandler2 = (event) => {
         const msg = event.message;
@@ -195,7 +190,7 @@ export async function startTelegramListener(): Promise<void> {
         if (!signal) {
           return;
         }
-        console.log("[Telegram/AVM] Parsed:", signal.token, signal.ca?.slice(0, 8));
+        log.dev("telegram", `AVM Parsed: ${signal.token} ${signal.ca?.slice(0, 8)}`);
         telegramAveMonitorSignal$.next(signal);
       };
 
@@ -204,11 +199,11 @@ export async function startTelegramListener(): Promise<void> {
         chats: [telegramChannel2Id],
       });
       client.addEventHandler(telegramEventHandler2, telegramEventBuilder2);
-      console.log("[Telegram/AVM] Listener started");
+      log.info("telegram", "AVM Listener started");
     }
   } catch (error) {
     connectionStateInput$.next(false);
-    console.error("[Telegram] Failed to start listener:", error);
+    log.error("telegram", "Failed to start listener:", error);
     throw error;
   }
 }
@@ -224,14 +219,14 @@ export async function stopTelegramListener(): Promise<void> {
       try {
         client.removeEventHandler(telegramEventHandler, telegramEventBuilder);
       } catch (err) {
-        console.warn("[Telegram] Failed to remove event handler on stop:", err);
+        log.warn("telegram", "Failed to remove event handler on stop:", err);
       }
     }
     if (telegramEventHandler2 && telegramEventBuilder2) {
       try {
         client.removeEventHandler(telegramEventHandler2, telegramEventBuilder2);
       } catch (err) {
-        console.warn("[Telegram/AVM] Failed to remove event handler on stop:", err);
+        log.warn("telegram", "AVM Failed to remove event handler on stop:", err);
       }
     }
     telegramEventHandler = undefined;
@@ -239,7 +234,7 @@ export async function stopTelegramListener(): Promise<void> {
     telegramEventHandler2 = undefined;
     telegramEventBuilder2 = undefined;
     await client.disconnect();
-    console.log("[Telegram] Disconnected");
+    log.warn("telegram", "Disconnected");
   } finally {
     connectionStateInput$.next(false);
   }

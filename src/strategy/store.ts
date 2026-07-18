@@ -8,6 +8,7 @@ import type {
 
 import type { Position, PositionExitReason } from "./types";
 import { CONFIG } from "../config";
+import { log } from "../utils/logger";
 
 const DEBUG = CONFIG.logLevel === "debug";
 
@@ -311,7 +312,7 @@ export function updatePositionPrice(update: PriceInfo): void {
   if (position.entryPrice <= 0) {
     initializePositionPrice(position, update);
 
-    if (DEBUG) console.log(`[Store] Init ${position.tokenName} entry=\$${update.priceUsd}`);
+    if (DEBUG) log.dev("store", `Init ${position.tokenName} entry=\$${update.priceUsd}`);
 
     publish(position);
 
@@ -320,7 +321,7 @@ export function updatePositionPrice(update: PriceInfo): void {
 
   applyPriceUpdate(position, update);
 
-  if (DEBUG) console.log(`[Store] Update ${position.tokenName} price=\$${update.priceUsd} pnl=${(position.currentProfitPct * 100).toFixed(2)}%`);
+  if (DEBUG) log.dev("store", `Update ${position.tokenName} price=\$${update.priceUsd} pnl=${(position.currentProfitPct * 100).toFixed(2)}%`);
 
   publish(position);
 }

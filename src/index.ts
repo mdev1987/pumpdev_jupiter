@@ -17,6 +17,7 @@ import { TtlStrategy } from "./strategy/exit-strategies/ttl";
 import { PriceSource } from "./strategy/types";
 import type { PriceInfo } from "./strategy/types";
 import { getSolUsdRate } from "./utils/sol_usd";
+import { log } from "./utils/logger";
 
 const wallet = new PaperWallet(CONFIG.paperBalanceSol);
 const store = new TradeStore(CONFIG.dbPath);
@@ -137,14 +138,14 @@ engine.start();
 pricePollTimer = setInterval(pollPrices, CONFIG.positionScanIntervalMs);
 pollPrices();
 
-console.log(`Bot started — ${wallet.getBalance()} SOL · engine=${engine.constructor.name}`);
+log.success("bot", `Started — ${wallet.getBalance()} SOL · engine=${engine.constructor.name}`);
 
 // ---------------------------------------------------------------------------
 // Shutdown
 // ---------------------------------------------------------------------------
 
 async function shutdown() {
-  console.log("\nShutting down...");
+  log.info("bot", "Shutting down...");
   stopCabalSpy();
   // await stopTelegramListener().catch(() => {});
   shutdownTelegramBot();

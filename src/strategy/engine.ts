@@ -11,6 +11,7 @@ import {
 import { filter, map, takeUntil, tap } from "rxjs/operators";
 
 import { CONFIG } from "../config";
+import { log } from "../utils/logger";
 
 import type { PriceInfo } from "./types";
 
@@ -136,9 +137,7 @@ export class PositionEngine {
 
     positionEngineState$.next("running");
 
-    console.log(
-      `[PositionEngine] Started (${this.scanInterval} ms scan interval)`,
-    );
+    log.info("engine", `Started (${this.scanInterval} ms scan interval)`);
   }
 
   /**
@@ -157,7 +156,7 @@ export class PositionEngine {
 
     positionEngineState$.next("stopped");
 
-    console.log("[PositionEngine] Stopped");
+    log.info("engine", "Stopped");
   }
   // ============================================================================
   // Internal Streams

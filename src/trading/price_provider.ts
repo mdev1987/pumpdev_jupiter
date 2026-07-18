@@ -1,6 +1,7 @@
 import { getSolUsdRate } from "../utils/sol_usd";
 import { CONFIG } from "../config";
 import { crypull } from "crypull";
+import { log } from "../utils/logger";
 
 export interface PriceProvider {
   getPrice(mint: string): Promise<number | null>;
@@ -72,7 +73,7 @@ export class JupiterPriceProvider implements PriceProvider {
       const solUsd = await getSolUsdRate();
       return tokenPriceUSD / solUsd;
     } catch (err) {
-      console.warn(`[Jupiter] price fetch failed for ${mint}:`, err);
+      log.dev("jupiter", `price fetch failed for ${mint}: ${err}`);
       return null;
     }
   }

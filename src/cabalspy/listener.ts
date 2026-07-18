@@ -9,6 +9,7 @@ import {
   fmtPct,
 } from "../telegram/telegram_bot";
 import type { PaperExecutor } from "../trading/paper_executor";
+import { log } from "../utils/logger";
 import { DexScreenerPriceProvider, JupiterPriceProvider } from "../trading/price_provider";
 
 const WS_URL = "wss://stream.cabalspy.xyz";
@@ -28,7 +29,7 @@ function connect(cbs?: {
   callbacks = cbs;
   const apiKey = CONFIG.cabalspyApiKey;
   if (!apiKey) {
-    console.warn("[CabalSpy] No API key configured");
+    log.warn("cabalspy", "No API key configured");
     return;
   }
 
@@ -41,7 +42,7 @@ function connect(cbs?: {
   try {
     ws = new WebSocket(`${WS_URL}?apiKey=${apiKey}`);
   } catch (err) {
-    console.error("[CabalSpy] Failed to create WebSocket:", err);
+    log.error("cabalspy", "Failed to create WebSocket:", err);
     scheduleReconnect();
     return;
   }
@@ -91,7 +92,7 @@ This is the one I'd optimize for eventual live trading.
 */
 
   ws.onopen = () => {
-    console.log("[CabalSpy] Connected");
+    log.success("cabalspy", "Connected");
     ws!.send(
       JSON.stringify({
         op: "subscribe",
@@ -115,7 +116,7 @@ This is the one I'd optimize for eventual live trading.
         max_token_age: 24,
       }),
     );
-    console.log("[CabalSpy] Subscribed — KOL entry_at=[2,3] min_buy=0.4 / Smart entry_at=[2] min_buy=0.75");
+    log.success("cabalspy", "Subscribed — KOL entry_at=[2,3] min_buy=0.4 / Smart entry_at=[2] min_buy=0.75");
   };
 
   ws.onmessage = async (raw) => {
@@ -133,7 +134,7 @@ This is the one I'd optimize for eventual live trading.
 
       if (msg.event !== "signal") {
         if (msg.event === "subscribed" || msg.event === "error") {
-          console.log(`[CabalSpy] Server:`, JSON.stringify(msg));
+          log.info("cabalspy", `Server: ${JSON.stringify(msg)}`);
         }
         return;
       }
@@ -158,7 +159,7 @@ This is the one I'd optimize for eventual live trading.
         // Skip weak clusters — require at least 2 SOL total invested
         const MIN_CLUSTER_SOL = 2;
         if (!totalInvested || totalInvested < MIN_CLUSTER_SOL) {
-          console.log(`[CabalSpy] Skip ${symbol} — cluster ${totalInvested ?? 0} SOL < ${MIN_CLUSTER_SOL} SOL`);
+          log.dev("cabalspy", `Skip ${symbol} — cluster ${totalInvested ?? 0} SOL < ${MIN_CLUSTER_SOL} SOL`);
           return;
         }
 
@@ -351,13 +352,13 @@ This is the one I'd optimize for eventual live trading.
   };
 
   ws.onclose = () => {
-    console.log("[CabalSpy] Disconnected");
+    log.warn("cabalspy", "Disconnected");
     ws = null;
     scheduleReconnect();
   };
 
   ws.onerror = (err) => {
-    console.error("[CabalSpy] Error:", err);
+    log.error("cabalspy", "Error:", err);
   };
 }
 

@@ -1,6 +1,7 @@
 import { Bot } from "grammy";
 import { convert } from "telegram-markdown-v2";
 import { CONFIG } from "../config";
+import { log } from "../utils/logger";
 
 /* -------------------------------------------------------------------------- */
 /*                                   Bot                                      */
@@ -11,11 +12,11 @@ let bot: Bot | null = null;
 export function initTelegramBot(): void {
   if (bot) return;
   if (!CONFIG.telegramBotToken) {
-    console.warn("[TelegramBot] No token configured");
+    log.warn("telegram", "No token configured");
     return;
   }
   bot = new Bot(CONFIG.telegramBotToken);
-  console.log("[TelegramBot] Initialized");
+  log.info("telegram", "Initialized");
 }
 
 export function shutdownTelegramBot(): void {
@@ -33,10 +34,10 @@ export function sendTelegram(text: string): void {
     bot.api.sendMessage(CONFIG.telegramChatId, converted, {
       parse_mode: "MarkdownV2",
     }).catch((err) => {
-      console.error("[TelegramBot] Failed to send msg:", err);
+      log.error("telegram", "Failed to send msg:", err);
     });
   } catch (err) {
-    console.error("[TelegramBot] Failed to convert msg:", err);
+    log.error("telegram", "Failed to convert msg:", err);
   }
 }
 

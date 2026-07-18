@@ -5,6 +5,7 @@ import { TradeStore } from "./trade_store";
 import { PriceRouter, type PriceResult } from "./price_provider";
 import { getSolUsdRate } from "../utils/sol_usd";
 import { notifyTradeClosed } from "../telegram/telegram_bot";
+import { log } from "../utils/logger";
 import type { RugInfo } from "../utils/rug_check";
 
 function allowBuy(balance: number, amount: number): boolean {
@@ -84,7 +85,7 @@ export class PaperExecutor {
       createdAt: Date.now(),
     });
 
-    console.log(`[Executor] Bought ${signal.token} @ ${entryPriceSOL} SOL (src=${signal.source ?? "?"})`);
+    log.success("executor", `Bought ${signal.token} @ ${entryPriceSOL} SOL (src=${signal.source ?? "?"})`);
     return true;
   }
 
