@@ -1,5 +1,6 @@
 import { getSolUsdRate } from "../utils/sol_usd";
 import { CONFIG } from "../config";
+import { crypull } from "crypull";
 
 export interface PriceProvider {
   getPrice(mint: string): Promise<number | null>;
@@ -16,6 +17,19 @@ export class PumpDevPriceProvider implements PriceProvider {
     const c = this.cache.get(mint);
     if (c && Date.now() - c.timestamp < 30_000) return c.price;
     return c?.price ?? null;
+  }
+}
+
+export class CrypullPriceProvider implements PriceProvider {
+  async getPrice(mint: string): Promise<number | null> {
+    try {
+      const data = await crypull.price(mint, "solana");
+      if (!data?.priceUsd || data.priceUsd <= 0) return null;
+      const solUsd = await getSolUsdRate();
+      return data.priceUsd / solUsd;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -107,18 +121,18 @@ export class DexScreenerPriceProvider implements PriceProvider {
 
 export interface PriceResult {
   price: number;
-  source: "pumpdev" | "jupiter" | "dexscreener";
+  source: "crypull" | "dexscreener" | "jupiter";
 }
 
 export class PriceRouter implements PriceProvider {
   constructor(
-    private pumpDev: PumpDevPriceProvider,
-    private jupiter: JupiterPriceProvider,
+    private crypull: CrypullPriceProvider,
     private dexscreener: DexScreenerPriceProvider,
+    private jupiter: JupiterPriceProvider,
   ) {}
 
-  seedPrice(mint: string, priceSOL: number) {
-    this.pumpDev.updatePrice(mint, priceSOL);
+  seedPrice(_mint: string, _priceSOL: number) {
+    // kept for API compatibility
   }
 
   async getPrice(mint: string): Promise<number | null> {
@@ -127,8 +141,8 @@ export class PriceRouter implements PriceProvider {
   }
 
   async getPriceWithSource(mint: string): Promise<PriceResult | null> {
-    const pd = await this.pumpDev.getPrice(mint);
-    if (pd !== null && pd > 0) return { price: pd, source: "pumpdev" };
+    const cp = await this.crypull.getPrice(mint);
+    if (cp !== null && cp > 0) return { price: cp, source: "crypull" };
 
     const ds = await this.dexscreener.getPrice(mint);
     if (ds !== null && ds > 0) return { price: ds, source: "dexscreener" };

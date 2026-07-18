@@ -166,9 +166,9 @@ This is the one I'd optimize for eventual live trading.
           // Retry DexScreener if no price yet (new tokens may not be indexed)
           let resolvedDexPrice = dexPrice;
           if (!resolvedDexPrice) {
-            // Retry DexScreener (3 attempts x 2s)
-            for (let attempt = 0; attempt < 3; attempt++) {
-              await sleep(2000);
+            // Retry DexScreener (5 attempts x 1s)
+            for (let attempt = 0; attempt < 5; attempt++) {
+              await sleep(1000);
               try {
                 const pools = await new DexScreenerPriceProvider().getPools(mint);
                 const pool = pools[0];

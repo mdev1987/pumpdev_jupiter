@@ -44,6 +44,10 @@ export class PaperExecutor {
       return false;
     }
 
+    if (this.positions.get(signal.ca)) {
+      return false;
+    }
+
     const size = CONFIG.positionSizeSol;
 
     if (!allowBuy(this.wallet.getBalance(), size)) {
