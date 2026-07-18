@@ -28,16 +28,29 @@ export function shutdownTelegramBot(): void {
 /* -------------------------------------------------------------------------- */
 
 export function sendTelegram(text: string): void {
+  const lines = text.split("\n");
+  const border = "─".repeat(40);
+  console.log(`\n${border}`);
+  for (const line of lines) {
+    console.log(line.replace(/\*|`|_/g, ""));
+  }
+  console.log(`${border}\n`);
+
   if (!bot || !CONFIG.telegramChatId) return;
   try {
     const converted = convert(text);
+    const preview = lines[0]!.replace(/\*|`|_/g, "").slice(0, 60);
     bot.api.sendMessage(CONFIG.telegramChatId, converted, {
       parse_mode: "MarkdownV2",
-    }).catch((err) => {
-      log.error("telegram", "Failed to send msg:", err);
+
+    }).then(() => {
+      log.dev("telegram", `Sent: ${preview}…`);
+    }).catch((err: unknown) => {
+      const code = (err as { code?: string })?.code ?? (err as { error_code?: number })?.error_code ?? "?";
+      log.warn("telegram", `Send failed (${code}) — ${preview}…`);
     });
   } catch (err) {
-    log.error("telegram", "Failed to convert msg:", err);
+    log.error("telegram", `Convert failed: ${err}`);
   }
 }
 
