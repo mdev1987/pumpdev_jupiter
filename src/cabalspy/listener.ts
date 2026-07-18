@@ -1,7 +1,12 @@
 import { CONFIG } from "../config";
 import { getRugAnalysis, buildRugFromApi } from "../utils/rug_check";
 import { getSolUsdRate } from "../utils/sol_usd";
-import { sendTelegram, fmtPrice, fmtMcap, fmtPct } from "../telegram/telegram_bot";
+import {
+  sendTelegram,
+  fmtPrice,
+  fmtMcap,
+  fmtPct,
+} from "../telegram/telegram_bot";
 import type { PaperExecutor } from "../trading/paper_executor";
 
 const WS_URL = "wss://stream.cabalspy.xyz";
@@ -17,7 +22,11 @@ function connect() {
     return;
   }
 
-  if (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
+  if (
+    ws?.readyState === WebSocket.OPEN ||
+    ws?.readyState === WebSocket.CONNECTING
+  )
+    return;
 
   try {
     ws = new WebSocket(`${WS_URL}?apiKey=${apiKey}`);
@@ -27,22 +36,86 @@ function connect() {
     return;
   }
 
+  /*
+  Profile 1 – Aggressive (Discovery)
+
+Catches trends early.
+
+{
+  "kol": {
+    "min_buy": 0.5,
+    "entry_at": [3, 5],
+    "exit_at": [1]
+  },
+  "smart": {
+    "min_buy": 0.75,
+    "entry_at": [2],
+    "exit_at": [1]
+  },
+  "min_win_rate": 55,
+  "min_token_age": 1,
+  "max_token_age": 48
+}
+  */
+
+  /*
+Profile 2 – Balanced ⭐ (My recommendation)
+
+This is the one I'd optimize for eventual live trading.
+
+{
+  "kol": {
+    "min_buy": 0.75,
+    "entry_at": [3, 5],
+    "exit_at": [2]
+  },
+  "smart": {
+    "min_buy": 1.0,
+    "entry_at": [2],
+    "exit_at": [1]
+  },
+  "min_win_rate": 60,
+  "min_token_age": 2,
+  "max_token_age": 60
+}
+*/
+
   ws.onopen = () => {
     console.log("[CabalSpy] Connected");
-    ws!.send(JSON.stringify({
-      op: "subscribe",
-      stream: "signal",
-      blockchain: "solana",
-      token: "*",
-      kol: { min_buy: 0.5, entry_at: [3, 5], exit_at: [1] },
-      min_win_rate: 50,
-    }));
+    ws!.send(
+      JSON.stringify({
+        op: "subscribe",
+        stream: "signal",
+        blockchain: "solana",
+        token: "*",
+        kol: {
+          min_buy: 0.5,
+          entry_at: [3, 5],
+          exit_at: [1],
+        },
+        smart: {
+          min_buy: 0.75,
+          entry_at: [2],
+          exit_at: [1],
+        },
+        min_win_rate: 55,
+        min_token_age: 1,
+        max_token_age: 48,
+      }),
+    );
   };
 
   ws.onmessage = async (raw) => {
     try {
       const rawData = raw.data;
-      const text = typeof rawData === "string" ? rawData : rawData instanceof Buffer ? rawData.toString() : rawData instanceof ArrayBuffer ? new TextDecoder().decode(rawData) : String(rawData);
+      const text =
+        typeof rawData === "string"
+          ? rawData
+          : rawData instanceof Buffer
+            ? rawData.toString()
+            : rawData instanceof ArrayBuffer
+              ? new TextDecoder().decode(rawData)
+              : String(rawData);
       const msg = JSON.parse(text);
 
       if (msg.event !== "signal") return;
@@ -68,12 +141,21 @@ function connect() {
         try {
           const apiResult = await getRugAnalysis(mint);
           const rug = buildRugFromApi(apiResult);
-          const badge = rug.verdict === "PASS" ? "🟢" : rug.verdict === "WARN" ? "🟡" : "🔴";
+          const badge =
+            rug.verdict === "PASS"
+              ? "🟢"
+              : rug.verdict === "WARN"
+                ? "🟡"
+                : "🔴";
           rugStr = `${badge} Verdict: ${rug.verdict ?? "?"} · Score: ${rug.score}`;
-          if (rug.mintRevoked !== undefined) rugStr += ` · Mint: ${rug.mintRevoked ? "✅" : "❌"}`;
-          if (rug.freezeRevoked !== undefined) rugStr += ` · Freeze: ${rug.freezeRevoked ? "✅" : "❌"}`;
-          if (rug.lpLockedPct != null) rugStr += ` · LP: ${rug.lpLockedPct.toFixed(1)}%`;
-          if (rug.top10Pct != null) rugStr += ` · Top10: ${rug.top10Pct.toFixed(1)}%`;
+          if (rug.mintRevoked !== undefined)
+            rugStr += ` · Mint: ${rug.mintRevoked ? "✅" : "❌"}`;
+          if (rug.freezeRevoked !== undefined)
+            rugStr += ` · Freeze: ${rug.freezeRevoked ? "✅" : "❌"}`;
+          if (rug.lpLockedPct != null)
+            rugStr += ` · LP: ${rug.lpLockedPct.toFixed(1)}%`;
+          if (rug.top10Pct != null)
+            rugStr += ` · Top10: ${rug.top10Pct.toFixed(1)}%`;
           if (rug.flags?.length) rugStr += ` · Flags: ${rug.flags.join(", ")}`;
 
           const rugReport = [
@@ -87,7 +169,9 @@ function connect() {
           ].join("\n");
           sendTelegram(rugReport);
         } catch (err) {
-          sendTelegram(`⚠️ **RugCheck Failed — ${symbol}**\n\`${mint}\`\n❌ ${err}`);
+          sendTelegram(
+            `⚠️ **RugCheck Failed — ${symbol}**\n\`${mint}\`\n❌ ${err}`,
+          );
         }
 
         if (executor) {
@@ -104,16 +188,24 @@ function connect() {
           });
 
           const entryReport = [
-            bought ? `🟢 **CabalSpy Buy — ${symbol}**` : `⛔ **CabalSpy Buy Rejected — ${symbol}**`,
+            bought
+              ? `🟢 **CabalSpy Buy — ${symbol}**`
+              : `⛔ **CabalSpy Buy Rejected — ${symbol}**`,
             `━━━━━━━━━━━━━━━━━━━`,
             `🔖 Token: \`${name}\``,
             `🔗 Mint: \`${mint}\``,
             `📊 MCap: ${mcap != null ? fmtMcap(mcapUsd ?? 0) : "?"}`,
             `👥 Wallets: \`${walletCount}\``,
-            totalInvested != null ? `💰 Cluster invested: \`${totalInvested} SOL\`` : null,
-            totalInvestedUsd != null ? `💵 Cluster invested USD: \`$${totalInvestedUsd.toFixed(2)}\`` : null,
+            totalInvested != null
+              ? `💰 Cluster invested: \`${totalInvested} SOL\``
+              : null,
+            totalInvestedUsd != null
+              ? `💵 Cluster invested USD: \`$${totalInvestedUsd.toFixed(2)}\``
+              : null,
             !bought ? `📋 Reason: max positions or insufficient balance` : null,
-          ].filter(Boolean).join("\n");
+          ]
+            .filter(Boolean)
+            .join("\n");
           sendTelegram(entryReport);
         }
       }
@@ -127,8 +219,12 @@ function connect() {
           `🔖 Token: \`${name}\``,
           `🔗 Mint: \`${mint}\``,
           `👥 Wallets: \`${walletCount}\``,
-          cluster?.unrealized_pnl_pct != null ? `📈 Cluster PnL: ${fmtPct(unrealizedPnlPct! / 100)}` : null,
-        ].filter(Boolean).join("\n");
+          cluster?.unrealized_pnl_pct != null
+            ? `📈 Cluster PnL: ${fmtPct(unrealizedPnlPct! / 100)}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join("\n");
         sendTelegram(exitReport);
       }
     } catch {
