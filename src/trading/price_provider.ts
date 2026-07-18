@@ -64,15 +64,57 @@ export class JupiterPriceProvider implements PriceProvider {
   }
 }
 
+
+export interface DexScreenerPool {
+  chainId: string;
+  dexId: string;
+  url: string;
+  pairAddress: string;
+  baseToken: { address: string; name: string; symbol: string };
+  quoteToken: { address: string; name: string; symbol: string };
+  priceNative: string;
+  priceUsd: string | null;
+  liquidity?: { usd: number; base: number; quote: number };
+  fdv?: number;
+  marketCap?: number;
+  volume?: Record<string, number>;
+  txns?: Record<string, { buys: number; sells: number }>;
+  priceChange?: Record<string, number>;
+  pairCreatedAt?: number;
+}
+
+export class DexScreenerPriceProvider implements PriceProvider {
+  async getPools(mint: string): Promise<DexScreenerPool[]> {
+    const text = await httpsGet(
+      `https://api.dexscreener.com/token-pairs/v1/solana/${mint}`,
+      { Accept: "application/json" },
+    );
+    return JSON.parse(text) as DexScreenerPool[];
+  }
+
+  async getPrice(mint: string): Promise<number | null> {
+    try {
+      const pools = await this.getPools(mint);
+      if (!pools.length) return null;
+      const native = Number(pools[0]!.priceNative);
+      if (!Number.isFinite(native) || native <= 0) return null;
+      return native;
+    } catch {
+      return null;
+    }
+  }
+}
+
 export interface PriceResult {
   price: number;
-  source: "pumpdev" | "jupiter";
+  source: "pumpdev" | "jupiter" | "dexscreener";
 }
 
 export class PriceRouter implements PriceProvider {
   constructor(
     private pumpDev: PumpDevPriceProvider,
     private jupiter: JupiterPriceProvider,
+    private dexscreener: DexScreenerPriceProvider,
   ) {}
 
   seedPrice(mint: string, priceSOL: number) {
@@ -87,6 +129,9 @@ export class PriceRouter implements PriceProvider {
   async getPriceWithSource(mint: string): Promise<PriceResult | null> {
     const pd = await this.pumpDev.getPrice(mint);
     if (pd !== null && pd > 0) return { price: pd, source: "pumpdev" };
+
+    const ds = await this.dexscreener.getPrice(mint);
+    if (ds !== null && ds > 0) return { price: ds, source: "dexscreener" };
 
     const jp = await this.jupiter.getPrice(mint);
     if (jp !== null && jp > 0) return { price: jp, source: "jupiter" };

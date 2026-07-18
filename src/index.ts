@@ -4,7 +4,7 @@ import { PaperWallet } from "./trading/paper_wallet";
 import { PositionManager } from "./trading/position";
 import { PaperExecutor } from "./trading/paper_executor";
 import { TradeStore } from "./trading/trade_store";
-import { PumpDevPriceProvider, JupiterPriceProvider, PriceRouter } from "./trading/price_provider";
+import { PumpDevPriceProvider, JupiterPriceProvider, DexScreenerPriceProvider, PriceRouter } from "./trading/price_provider";
 import { initTelegramBot, shutdownTelegramBot } from "./telegram/telegram_bot";
 import { startCabalSpy, stopCabalSpy } from "./cabalspy/listener";
 import { PositionEngine } from "./strategy/engine";
@@ -23,7 +23,7 @@ import { telegramAveMonitorSignal$, startTelegramListener, stopTelegramListener 
 
 const wallet = new PaperWallet(CONFIG.paperBalanceSol);
 const store = new TradeStore(CONFIG.dbPath);
-const priceRouter = new PriceRouter(new PumpDevPriceProvider(), new JupiterPriceProvider());
+const priceRouter = new PriceRouter(new PumpDevPriceProvider(), new JupiterPriceProvider(), new DexScreenerPriceProvider());
 const executor = new PaperExecutor(wallet, new PositionManager(), store, priceRouter);
 
 // ---------------------------------------------------------------------------
