@@ -152,38 +152,9 @@ This is the one I'd optimize for eventual live trading.
           }
         } catch {}
 
-        let rugStr = "";
         let apiResult: Awaited<ReturnType<typeof getRugAnalysis>> | undefined;
         try {
           apiResult = await getRugAnalysis(mint);
-          const rug = buildRugFromApi(apiResult);
-          const badge =
-            rug.verdict === "PASS"
-              ? "🟢"
-              : rug.verdict === "WARN"
-                ? "🟡"
-                : "🔴";
-          rugStr = `${badge} Verdict: ${rug.verdict ?? "N/A"} · Score: ${rug.score}`;
-          if (rug.mintRevoked !== undefined)
-            rugStr += ` · Mint: ${rug.mintRevoked ? "✅" : "❌"}`;
-          if (rug.freezeRevoked !== undefined)
-            rugStr += ` · Freeze: ${rug.freezeRevoked ? "✅" : "❌"}`;
-          if (rug.lpLockedPct != null)
-            rugStr += ` · LP: ${rug.lpLockedPct.toFixed(1)}%`;
-          if (rug.top10Pct != null)
-            rugStr += ` · Top10: ${rug.top10Pct.toFixed(1)}%`;
-          if (rug.flags?.length) rugStr += ` · Flags: ${rug.flags.join(", ")}`;
-
-          const rugReport = [
-            `🛡 **RugCheck — ${symbol}**`,
-            `━━━━━━━━━━━━━━━━━━━`,
-            `🔖 Token: \`${name}\` (\`${symbol}\`)`,
-            `🔗 Mint: \`${mint}\``,
-            `📊 MCap: ${fmtMcap(mcapUsd ?? dexMcap ?? 0)}`,
-            rugStr,
-            ...(rug.priceUsd != null ? [`💵 Price: $${rug.priceUsd}`] : []),
-          ].join("\n");
-          sendTelegram(rugReport);
         } catch (err) {
           sendTelegram(
             `⚠️ **RugCheck Failed — ${symbol}**\n\`${mint}\`\n❌ ${err}`,
@@ -191,10 +162,35 @@ This is the one I'd optimize for eventual live trading.
         }
 
         if (executor) {
+          // Retry DexScreener if no price yet (new tokens may not be indexed)
+          let resolvedDexPrice = dexPrice;
+          if (!resolvedDexPrice) {
+            for (let attempt = 0; attempt < 3; attempt++) {
+              await sleep(2000);
+              try {
+                const pools = await new DexScreenerPriceProvider().getPools(mint);
+                const pool = pools[0];
+                if (pool) {
+                  const pn = Number(pool.priceNative);
+                  if (Number.isFinite(pn) && pn > 0) {
+                    resolvedDexPrice = pn;
+                    if (!dexMcap) {
+                      if (pool.marketCap) dexMcap = pool.marketCap;
+                      if (!mcapUsd && pool.fdv) mcapUsd = pool.fdv;
+                    }
+                  }
+                }
+              } catch {}
+              if (resolvedDexPrice) break;
+            }
+          }
+
           const displayMcap = mcapUsd ?? dexMcap ?? 0;
-          const priceSOL = dexPrice ?? 0;
+          const priceSOL = resolvedDexPrice ?? 0;
           const solUsd = await getSolUsdRate();
           const entryPriceUSD = priceSOL * solUsd;
+
+          const rug = apiResult ? buildRugFromApi(apiResult) : undefined;
 
           const bought = await executor.buy({
             token: name,
@@ -203,14 +199,67 @@ This is the one I'd optimize for eventual live trading.
             dex: "pump",
             mcap: displayMcap,
             source: "cabalspy",
-            rug: apiResult ? buildRugFromApi(apiResult) : undefined,
+            rug,
           });
 
           if (bought && callbacks?.onBuy) {
             callbacks.onBuy(mint, name, entryPriceUSD, CONFIG.positionSizeSol);
           }
 
-          const entryReport = [
+          // --- Build combined message ---
+
+          const rugBadge = rug?.verdict === "PASS" ? "🟢" : rug?.verdict === "WARN" ? "🟡" : "🔴";
+
+          // Section 1: RugCheck
+          const rugSection = [
+            `🛡 **RugCheck — ${symbol}**`,
+            `━━━━━━━━━━━━━━━━━━━`,
+            `🔖 Token: \`${name}\` (\`${symbol}\`)`,
+            `🔗 Mint: \`${mint}\``,
+            `📊 MCap: ${fmtMcap(displayMcap)}`,
+            `${rugBadge} Verdict: ${rug?.verdict ?? "N/A"} · Score: ${rug?.score}` +
+            (rug?.mintRevoked !== undefined ? ` · Mint: ${rug.mintRevoked ? "✅" : "❌"}` : "") +
+            (rug?.freezeRevoked !== undefined ? ` · Freeze: ${rug.freezeRevoked ? "✅" : "❌"}` : "") +
+            (rug?.lpLockedPct != null ? ` · LP: ${rug.lpLockedPct.toFixed(1)}%` : "") +
+            (rug?.top10Pct != null ? ` · Top10: ${rug.top10Pct.toFixed(1)}%` : "") +
+            (rug?.flags?.length ? ` · Flags: ${rug.flags.join(", ")}` : ""),
+          ].join("\n");
+
+          // Section 2: Position Opened
+          const entryStr = priceSOL > 0 ? fmtPrice(priceSOL, "SOL") : "—";
+          const balance = executor.getBalance();
+
+          const posSection: string[] = [
+            `🟢 **Position Opened**`,
+            `━━━━━━━━━━━━━━━━━━━`,
+            `🔖 Token: \`${name}\``,
+            `💰 Size: \`${CONFIG.positionSizeSol} SOL\``,
+            `💵 Entry: \`${entryStr}\``,
+            `💳 Balance: \`${balance.toFixed(4)} SOL\``,
+            `🏛 Dex: \`pump\``,
+          ];
+
+          if (rug) {
+            posSection.push(`🛡 Rug: ${rugBadge} \`${rug.verdict ?? "?"}\` (score: \`${rug.score}\`)`);
+            if (rug.established !== undefined) {
+              const est = rug.established ? "✅" : "❌";
+              const mintR = rug.mintRevoked ? "✅" : "❌";
+              const freezeR = rug.freezeRevoked ? "✅" : "❌";
+              posSection.push(`🔒 Established: ${est} · Mint: ${mintR} · Freeze: ${freezeR}`);
+            }
+            const lpLine: string[] = [];
+            if (rug.lpLockedPct != null) lpLine.push(`LP: ${rug.lpLockedPct.toFixed(1)}%`);
+            if (rug.top10Pct != null) lpLine.push(`Top10: ${rug.top10Pct.toFixed(1)}%`);
+            if (rug.pairAgeHours != null) lpLine.push(`Age: ${rug.pairAgeHours.toFixed(0)}h`);
+            if (lpLine.length) posSection.push(`🔐 ${lpLine.join(" · ")}`);
+            if (rug.flags?.length) posSection.push(`🚩 Flags: \`${rug.flags.join(", ")}\``);
+          }
+
+          posSection.push(`📡 Price: \`cabalspy\``);
+          posSection.push(`📊 Positions: \`${executor.getPositionCount()}/${CONFIG.maxOpenPositions}\``);
+
+          // Section 3: CabalSpy Buy
+          const buySection: string[] = [
             bought
               ? `🟢 **CabalSpy Buy — ${symbol}**`
               : `⛔ **CabalSpy Buy Rejected — ${symbol}**`,
@@ -218,21 +267,20 @@ This is the one I'd optimize for eventual live trading.
             `🔖 Token: \`${name}\``,
             `🔗 Mint: \`${mint}\``,
             `📊 MCap: ${fmtMcap(displayMcap)}`,
-            dexPrice
-              ? `💵 Price: \`$${(priceSOL * solUsd).toFixed(8)}\``
-              : null,
             `👥 Wallets: \`${walletCount}\``,
-            totalInvested != null
-              ? `💰 Cluster invested: \`${totalInvested} SOL\``
-              : null,
-            totalInvestedUsd != null
-              ? `💵 Cluster invested USD: \`$${totalInvestedUsd.toFixed(2)}\``
-              : null,
-            !bought ? `📋 Reason: max positions or insufficient balance` : null,
-          ]
-            .filter(Boolean)
-            .join("\n");
-          sendTelegram(entryReport);
+          ];
+
+          if (totalInvested != null) {
+            buySection.push(`💰 Cluster invested: \`${totalInvested} SOL\``);
+          }
+          if (totalInvestedUsd != null) {
+            buySection.push(`💵 Cluster invested USD: \`$${totalInvestedUsd.toFixed(2)}\``);
+          }
+          if (!bought) {
+            buySection.push(`📋 Reason: max positions or insufficient balance`);
+          }
+
+          sendTelegram(rugSection + "\n\n" + posSection.join("\n") + "\n\n" + buySection.join("\n"));
         }
       }
 
@@ -268,6 +316,10 @@ This is the one I'd optimize for eventual live trading.
   ws.onerror = (err) => {
     console.error("[CabalSpy] Error:", err);
   };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 function scheduleReconnect() {

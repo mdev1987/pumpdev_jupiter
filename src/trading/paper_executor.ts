@@ -4,7 +4,7 @@ import { PositionManager } from "./position";
 import { TradeStore } from "./trade_store";
 import { PriceRouter, type PriceResult } from "./price_provider";
 import { getSolUsdRate } from "../utils/sol_usd";
-import { notifyBuyOpened, notifyTradeClosed } from "../telegram/telegram_bot";
+import { notifyTradeClosed } from "../telegram/telegram_bot";
 import type { RugInfo } from "../utils/rug_check";
 
 function allowBuy(balance: number, amount: number): boolean {
@@ -80,25 +80,6 @@ export class PaperExecutor {
       createdAt: Date.now(),
     });
 
-    notifyBuyOpened(
-      signal.token,
-      size,
-      this.wallet.getBalance(),
-      "SOL",
-      signal.mcap,
-      signal.dex,
-      this.positions.count(),
-      CONFIG.maxOpenPositions,
-      undefined,
-      "SOL",
-      entryPriceSOL,
-      signal.riskLevel,
-      signal.riskScore,
-      signal.securityFlags,
-      signal.source ?? "pumpdev",
-      signal.rug,
-    );
-
     console.log(`[Executor] Bought ${signal.token} @ ${entryPriceSOL} SOL (src=${signal.source ?? "?"})`);
     return true;
   }
@@ -156,9 +137,24 @@ export class PaperExecutor {
   updatePrice(ca: string, priceSOL: number) {
     const p = this.positions.get(ca);
     if (!p) return;
+    if (p.entryPriceSOL <= 0 && priceSOL > 0) {
+      p.entryPriceSOL = priceSOL;
+    }
     p.currentPriceSOL = priceSOL;
     if (priceSOL > p.peakPriceSOL) {
       p.peakPriceSOL = priceSOL;
     }
+  }
+
+  getPosition(ca: string) {
+    return this.positions.get(ca);
+  }
+
+  getBalance(): number {
+    return this.wallet.getBalance();
+  }
+
+  getPositionCount(): number {
+    return this.positions.count();
   }
 }

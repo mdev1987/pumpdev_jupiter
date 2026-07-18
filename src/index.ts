@@ -9,7 +9,7 @@ import { initTelegramBot, shutdownTelegramBot } from "./telegram/telegram_bot";
 import { startCabalSpy, stopCabalSpy } from "./cabalspy/listener";
 import { PositionEngine } from "./strategy/engine";
 import { registerStrategies, exitDecision$, clearPendingExit } from "./strategy/scanner";
-import { addPosition, getPositions, hasPosition, removePosition } from "./strategy/store";
+import { addPosition, getPositions, removePosition } from "./strategy/store";
 import { StopLossStrategy } from "./strategy/exit-strategies/stop-loss";
 import { TrailingStopStrategy } from "./strategy/exit-strategies/trailing-stop";
 import { PartialTakeProfitStrategy } from "./strategy/exit-strategies/partial-tp";
@@ -17,9 +17,6 @@ import { TtlStrategy } from "./strategy/exit-strategies/ttl";
 import { PriceSource } from "./strategy/types";
 import type { PriceInfo } from "./strategy/types";
 import { getSolUsdRate } from "./utils/sol_usd";
-import { getRugAnalysis, buildRugFromApi } from "./utils/rug_check";
-import { sendTelegram } from "./telegram/telegram_bot";
-import { telegramAveMonitorSignal$, startTelegramListener, stopTelegramListener } from "./telegram/telegram_client";
 
 const wallet = new PaperWallet(CONFIG.paperBalanceSol);
 const store = new TradeStore(CONFIG.dbPath);
@@ -59,6 +56,7 @@ async function pollPrices() {
     for (const [ca] of getPositions()) {
       const result = await priceRouter.getPriceWithSource(ca);
       if (result && result.price > 0) {
+        executor.updatePrice(ca, result.price);
         price$.next({
           token: ca,
           pair: ca,
@@ -72,6 +70,7 @@ async function pollPrices() {
   } catch {}
 }
 
+/*
 // ---------------------------------------------------------------------------
 // Telegram Ave Monitor Signals
 // ---------------------------------------------------------------------------
@@ -118,6 +117,7 @@ telegramAveMonitorSignal$.subscribe(async (signal) => {
     });
   }
 });
+*/
 
 // ---------------------------------------------------------------------------
 // Start
@@ -132,7 +132,7 @@ startCabalSpy(executor, {
     removePosition(ca);
   },
 });
-startTelegramListener().catch((err: Error) => console.warn("[Telegram] Skipped:", err.message));
+// startTelegramListener().catch((err: Error) => console.warn("[Telegram] Skipped:", err.message));
 engine.start();
 pricePollTimer = setInterval(pollPrices, CONFIG.positionScanIntervalMs);
 pollPrices();
@@ -146,7 +146,7 @@ console.log(`Bot started — ${wallet.getBalance()} SOL · engine=${engine.const
 async function shutdown() {
   console.log("\nShutting down...");
   stopCabalSpy();
-  await stopTelegramListener().catch(() => {});
+  // await stopTelegramListener().catch(() => {});
   shutdownTelegramBot();
   if (pricePollTimer) clearInterval(pricePollTimer);
   engine.stop();
