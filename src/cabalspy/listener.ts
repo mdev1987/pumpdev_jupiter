@@ -14,6 +14,8 @@ import { DexScreenerPriceProvider, JupiterPriceProvider } from "../trading/price
 
 const WS_URL = "wss://stream.cabalspy.xyz";
 
+let walletFieldsLogged = false;
+
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let executor: PaperExecutor | null = null;
@@ -162,10 +164,26 @@ This is the one I'd optimize for eventual live trading.
       const unrealizedPnlPct = cluster?.unrealized_pnl_pct;
 
       if (kind === "entry") {
-        // Skip weak clusters — require at least 1 SOL total invested
-        const MIN_CLUSTER_SOL = 1;
-        if (!totalInvested || totalInvested < MIN_CLUSTER_SOL) {
-          log.dev("cabalspy", `Skip ${symbol} — cluster ${totalInvested ?? 0} SOL < ${MIN_CLUSTER_SOL} SOL`);
+        // ── Wallet debug log (first signal only) ──
+        if (!walletFieldsLogged && wallets.length > 0) {
+          log.dev("cabalspy", `Wallet field keys: ${JSON.stringify(Object.keys(wallets[0]!))}`);
+          log.dev("cabalspy", `First wallet sample: ${JSON.stringify(wallets[0])}`);
+          walletFieldsLogged = true;
+        }
+
+        // ── Wallet-level filters ──
+        const walletRejection = checkWalletFilters(
+          wallets,
+          totalInvested ?? 0,
+          walletCount,
+        );
+        if (walletRejection) {
+          sendTelegram(
+            `⛔ **Filter Rejected — ${symbol}**\n` +
+            `\`${mint}\`\n` +
+            `👥 Wallets: \`${walletCount}\` · 💰 Cluster: \`${totalInvested ?? 0} SOL\`\n` +
+            `📋 ${walletRejection}`,
+          );
           return;
         }
 
@@ -189,6 +207,16 @@ This is the one I'd optimize for eventual live trading.
           sendTelegram(
             `⚠️ **RugCheck Failed — ${symbol}**\n\`${mint}\`\n❌ ${err}`,
           );
+        }
+
+        // ── FAIL rugcheck rejection ──
+        if (apiResult && CONFIG.cabalFailReject && apiResult.verdict === "FAIL") {
+          sendTelegram(
+            `⛔ **RugCheck FAIL — ${symbol}**\n` +
+            `\`${mint}\`\n` +
+            `📋 Verdict: FAIL (score: ${apiResult.checks?.rugScore ?? "?"})`,
+          );
+          return;
         }
 
         if (executor) {
@@ -239,6 +267,24 @@ This is the one I'd optimize for eventual live trading.
           const priceSOL = resolvedDexPrice ?? 0;
           const solUsd = await getSolUsdRate();
           const entryPriceUSD = priceSOL * solUsd;
+
+          // ── MCAP filter ──
+          if (CONFIG.cabalMinMcap > 0 && displayMcap > 0 && displayMcap < CONFIG.cabalMinMcap) {
+            sendTelegram(
+              `⛔ **MC too Low — ${symbol}**\n` +
+              `\`${mint}\`\n` +
+              `📊 MCap: $${(displayMcap / 1000).toFixed(1)}K < $${(CONFIG.cabalMinMcap / 1000).toFixed(1)}K`,
+            );
+            return;
+          }
+          if (CONFIG.cabalMaxMcap > 0 && displayMcap > 0 && displayMcap > CONFIG.cabalMaxMcap) {
+            sendTelegram(
+              `⛔ **MC too High — ${symbol}**\n` +
+              `\`${mint}\`\n` +
+              `📊 MCap: $${(displayMcap / 1000).toFixed(1)}K > $${(CONFIG.cabalMaxMcap / 1000).toFixed(1)}K`,
+            );
+            return;
+          }
 
           const rug = apiResult ? buildRugFromApi(apiResult) : undefined;
 
@@ -366,6 +412,54 @@ This is the one I'd optimize for eventual live trading.
   ws.onerror = (err) => {
     log.error("cabalspy", "Error:", err);
   };
+}
+
+function checkWalletFilters(
+  wallets: any[],
+  totalInvested: number,
+  walletCount: number,
+): string | null {
+  const minW = CONFIG.cabalMinWallets;
+  const maxW = CONFIG.cabalMaxWallets;
+  const minSol = CONFIG.cabalMinClusterSol;
+  const maxSol = CONFIG.cabalMaxClusterSol;
+  const minAvg = CONFIG.cabalMinAvgBuySol;
+  const maxAvg = CONFIG.cabalMaxAvgBuySol;
+  const maxShare = CONFIG.cabalMaxLargestShare;
+  const minWR = CONFIG.cabalMinWinRate;
+
+  if (walletCount < minW) return `Wallets ${walletCount} < ${minW}`;
+  if (walletCount > maxW) return `Wallets ${walletCount} > ${maxW}`;
+  if (totalInvested < minSol) return `Cluster ${totalInvested} SOL < ${minSol}`;
+  if (totalInvested > maxSol) return `Cluster ${totalInvested} SOL > ${maxSol}`;
+
+  if (wallets.length === 0) return null;
+
+  const amounts: number[] = [];
+  const winRates: number[] = [];
+  for (const w of wallets) {
+    const amt = w.invested_amount ?? w.amount_invested ?? w.invested ?? w.amount ?? w.buy_amount ?? 0;
+    if (amt > 0) amounts.push(amt);
+    const wr = w.win_rate ?? w.winRate ?? w.winrate ?? w.profitability ?? w.score;
+    if (typeof wr === "number" && wr > 0) winRates.push(wr);
+  }
+
+  if (amounts.length > 0) {
+    const avg = amounts.reduce((a, b) => a + b, 0) / amounts.length;
+    if (avg < minAvg) return `Avg buy ${avg.toFixed(2)} SOL < ${minAvg}`;
+    if (avg > maxAvg) return `Avg buy ${avg.toFixed(2)} SOL > ${maxAvg}`;
+
+    const maxAmt = Math.max(...amounts);
+    const share = maxAmt / totalInvested;
+    if (share > maxShare) return `Largest wallet ${(share * 100).toFixed(0)}% > ${(maxShare * 100).toFixed(0)}%`;
+  }
+
+  if (winRates.length > 0) {
+    const avgWR = winRates.reduce((a, b) => a + b, 0) / winRates.length;
+    if (avgWR < minWR) return `Avg win rate ${(avgWR * 100).toFixed(0)}% < ${(minWR * 100).toFixed(0)}%`;
+  }
+
+  return null;
 }
 
 function sleep(ms: number): Promise<void> {

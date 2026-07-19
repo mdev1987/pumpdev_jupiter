@@ -118,6 +118,36 @@ export class DexScreenerPriceProvider implements PriceProvider {
       return null;
     }
   }
+
+  async getPricesBatch(mints: string[]): Promise<Map<string, number>> {
+    const result = new Map<string, number>();
+    if (!mints.length) return result;
+
+    const batchSize = 30;
+    for (let i = 0; i < mints.length; i += batchSize) {
+      const chunk = mints.slice(i, i + batchSize);
+      try {
+        const text = await httpsGet(
+          `https://api.dexscreener.com/tokens/v1/solana/${chunk.join(",")}`,
+          { Accept: "application/json" },
+        );
+        const pools = JSON.parse(text) as DexScreenerPool[];
+        const seen = new Set<string>();
+        for (const pool of pools) {
+          const addr = pool.baseToken?.address;
+          if (!addr || seen.has(addr)) continue;
+          seen.add(addr);
+          const native = Number(pool.priceNative);
+          if (Number.isFinite(native) && native > 0) {
+            result.set(addr, native);
+          }
+        }
+      } catch {
+        // chunk failed — individual fallbacks cover missing tokens
+      }
+    }
+    return result;
+  }
 }
 
 export interface PriceResult {
@@ -152,5 +182,22 @@ export class PriceRouter implements PriceProvider {
     if (jp !== null && jp > 0) return { price: jp, source: "jupiter" };
 
     return null;
+  }
+
+  async getPricesBatch(mints: string[]): Promise<Map<string, PriceResult>> {
+    const result = new Map<string, PriceResult>();
+
+    const dsPrices = await this.dexscreener.getPricesBatch(mints);
+    for (const [addr, price] of dsPrices) {
+      result.set(addr, { price, source: "dexscreener" });
+    }
+
+    const missing = mints.filter((m) => !result.has(m));
+    for (const addr of missing) {
+      const r = await this.getPriceWithSource(addr);
+      if (r) result.set(addr, r);
+    }
+
+    return result;
   }
 }

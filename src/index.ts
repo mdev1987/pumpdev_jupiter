@@ -46,24 +46,30 @@ exitDecision$.subscribe(async (decision) => {
 });
 
 // ---------------------------------------------------------------------------
-// Price Polling for Strategy Engine
+// Batch Price Polling for Strategy Engine (DexScreener, every 200ms)
 // ---------------------------------------------------------------------------
 
 let pricePollTimer: ReturnType<typeof setInterval> | null = null;
 
-async function pollPrices() {
+async function batchPollPrices() {
+  const positions = getPositions();
+  if (positions.size === 0) return;
+
   try {
     const solUsd = await getSolUsdRate();
-    for (const [ca] of getPositions()) {
-      const result = await priceRouter.getPriceWithSource(ca);
-      if (result && result.price > 0) {
-        executor.updatePrice(ca, result.price);
+    const addrs = [...positions.keys()];
+    const results = await priceRouter.getPricesBatch(addrs);
+
+    const now = Date.now();
+    for (const [ca, { price }] of results) {
+      if (price > 0) {
+        executor.updatePrice(ca, price);
         price$.next({
           token: ca,
           pair: ca,
-          priceUsd: result.price * solUsd,
+          priceUsd: price * solUsd,
           source: PriceSource.UNKNOWN,
-          timestamp: Date.now(),
+          timestamp: now,
           currency: "USD" as const,
         });
       }
@@ -135,8 +141,8 @@ startCabalSpy(executor, {
 });
 // startTelegramListener().catch((err: Error) => console.warn("[Telegram] Skipped:", err.message));
 engine.start();
-pricePollTimer = setInterval(pollPrices, CONFIG.positionScanIntervalMs);
-pollPrices();
+pricePollTimer = setInterval(batchPollPrices, CONFIG.pricePollIntervalMs);
+batchPollPrices();
 
 log.success("bot", `Started — ${wallet.getBalance()} SOL · engine=${engine.constructor.name}`);
 
