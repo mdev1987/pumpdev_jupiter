@@ -68,17 +68,8 @@ export const CONFIG = {
   solUsdFallback: number("SOL_USD_FALLBACK", 150),
   logLevel: process.env.LOG_LEVEL ?? "info",
 
-  // ── CabalSpy Signal Filters ──────────────────────────────────────────────
-  cabalMinWallets: number("CABAL_MIN_WALLETS", 3),
-  cabalMaxWallets: number("CABAL_MAX_WALLETS", 8),
-  cabalMinClusterSol: number("CABAL_MIN_CLUSTER_SOL", 3),
-  cabalMaxClusterSol: number("CABAL_MAX_CLUSTER_SOL", 20),
-  cabalMinAvgBuySol: number("CABAL_MIN_AVG_BUY_SOL", 0.5),
-  cabalMaxAvgBuySol: number("CABAL_MAX_AVG_BUY_SOL", 5),
-  cabalMaxLargestShare: number("CABAL_MAX_LARGEST_SHARE", 0.4),
-  cabalMinWinRate: number("CABAL_MIN_WIN_RATE", 0.4),
-  cabalMinMcap: number("CABAL_MIN_MCAP", 5000),
-  cabalMaxMcap: number("CABAL_MAX_MCAP", 50000),
-  cabalMinLiquiditySol: number("CABAL_MIN_LIQUIDITY_SOL", 10),
+  // ── CabalSpy Scoring System ──────────────────────────────────────────────
+  cabalScoreBuy: number("CABAL_SCORE_BUY", 70),
+  cabalScoreWatch: number("CABAL_SCORE_WATCH", 50),
   cabalFailReject: (process.env.CABAL_FAIL_REJECT ?? "true") === "true",
 };

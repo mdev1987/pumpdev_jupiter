@@ -10,7 +10,8 @@ import {
 } from "../telegram/telegram_bot";
 import type { PaperExecutor } from "../trading/paper_executor";
 import { log } from "../utils/logger";
-import { DexScreenerPriceProvider, JupiterPriceProvider } from "../trading/price_provider";
+import { DexScreenerPriceProvider, JupiterPriceProvider, type DexScreenerPool } from "../trading/price_provider";
+import { scoreSignal } from "./scoring";
 
 const WS_URL = "wss://stream.cabalspy.xyz";
 
@@ -171,32 +172,18 @@ This is the one I'd optimize for eventual live trading.
           walletFieldsLogged = true;
         }
 
-        // ── Wallet-level filters ──
-        const walletRejection = checkWalletFilters(
-          wallets,
-          totalInvested ?? 0,
-          walletCount,
-        );
-        if (walletRejection) {
-          sendTelegram(
-            `⛔ **Filter Rejected — ${symbol}**\n` +
-            `\`${mint}\`\n` +
-            `👥 Wallets: \`${walletCount}\` · 💰 Cluster: \`${totalInvested ?? 0} SOL\`\n` +
-            `📋 ${walletRejection}`,
-          );
-          return;
-        }
-
+        // ── Fetch DexScreener pool + RugCheck ──
+        let dexPool: DexScreenerPool | undefined;
         let dexMcap: number | undefined;
         let dexPrice: number | undefined;
         try {
           const pools = await new DexScreenerPriceProvider().getPools(mint);
-          const pool = pools[0];
-          if (pool) {
-            const pn = Number(pool.priceNative);
+          dexPool = pools[0];
+          if (dexPool) {
+            const pn = Number(dexPool.priceNative);
             if (Number.isFinite(pn) && pn > 0) dexPrice = pn;
-            if (pool.marketCap) dexMcap = pool.marketCap;
-            if (!mcapUsd && pool.fdv) mcapUsd = pool.fdv;
+            if (dexPool.marketCap) dexMcap = dexPool.marketCap;
+            if (!mcapUsd && dexPool.fdv) mcapUsd = dexPool.fdv;
           }
         } catch {}
 
@@ -209,21 +196,55 @@ This is the one I'd optimize for eventual live trading.
           );
         }
 
-        // ── FAIL rugcheck rejection ──
-        if (apiResult && CONFIG.cabalFailReject && apiResult.verdict === "FAIL") {
+        // ── Run scoring engine ──
+        const walletInfos = wallets.map((w: Record<string, unknown>) => ({
+          amount: (w.invested_amount ?? w.amount_invested ?? w.invested ?? w.amount ?? w.buy_amount ?? 0) as number,
+          winRate: (w.win_rate ?? w.winRate ?? w.winrate ?? w.profitability ?? w.score) as number | undefined,
+        }));
+
+        const displayMcap = mcapUsd ?? dexMcap ?? 0;
+
+        const scored = scoreSignal({
+          wallets: walletInfos,
+          walletCount,
+          totalInvested: totalInvested ?? 0,
+          dexPool,
+          rugAnalysis: apiResult,
+          mcap: displayMcap,
+        });
+
+        // Format breakdown for message
+        const breakdownStr = Object.entries(scored.breakdown)
+          .filter(([, v]) => v !== 0)
+          .map(([k, v]) => `${k}: ${v > 0 ? "+" : ""}${v}`)
+          .join(" · ");
+
+        // ── Handle scoring result ──
+        if (scored.action === "reject") {
           sendTelegram(
-            `⛔ **RugCheck FAIL — ${symbol}**\n` +
+            `⛔ **Scored Reject — ${symbol}**\n` +
             `\`${mint}\`\n` +
-            `📋 Verdict: FAIL (score: ${apiResult.checks?.rugScore ?? "?"})`,
+            `📊 Score: \`${scored.score}\` ${breakdownStr ? `— ${breakdownStr}` : ""}` +
+            (scored.reason ? `\n📋 ${scored.reason}` : ""),
           );
           return;
         }
 
+        if (scored.action === "watch") {
+          sendTelegram(
+            `👀 **Watchlist — ${symbol}**\n` +
+            `\`${mint}\`\n` +
+            `📊 Score: \`${scored.score}\` ${breakdownStr ? `— ${breakdownStr}` : ""}` +
+            (scored.reason ? `\n📋 ${scored.reason}` : ""),
+          );
+          return;
+        }
+
+        // ── SCORE >= BUY THRESHOLD — proceed to trade ──
         if (executor) {
           // Retry DexScreener if no price yet (new tokens may not be indexed)
           let resolvedDexPrice = dexPrice;
           if (!resolvedDexPrice) {
-            // Retry DexScreener (5 attempts x 1s)
             for (let attempt = 0; attempt < 5; attempt++) {
               await sleep(1000);
               try {
@@ -242,7 +263,6 @@ This is the one I'd optimize for eventual live trading.
               } catch {}
               if (resolvedDexPrice) break;
             }
-            // Fallback: crypull (multi-provider, catches tokens not in DexScreener yet)
             if (!resolvedDexPrice) {
               try {
                 const cp = await crypull.price(mint, "solana");
@@ -252,7 +272,6 @@ This is the one I'd optimize for eventual live trading.
                 }
               } catch {}
             }
-            // Fallback: Jupiter API
             if (!resolvedDexPrice) {
               try {
                 const jp = await new JupiterPriceProvider().getPrice(mint);
@@ -263,28 +282,9 @@ This is the one I'd optimize for eventual live trading.
             }
           }
 
-          const displayMcap = mcapUsd ?? dexMcap ?? 0;
           const priceSOL = resolvedDexPrice ?? 0;
           const solUsd = await getSolUsdRate();
           const entryPriceUSD = priceSOL * solUsd;
-
-          // ── MCAP filter ──
-          if (CONFIG.cabalMinMcap > 0 && displayMcap > 0 && displayMcap < CONFIG.cabalMinMcap) {
-            sendTelegram(
-              `⛔ **MC too Low — ${symbol}**\n` +
-              `\`${mint}\`\n` +
-              `📊 MCap: $${(displayMcap / 1000).toFixed(1)}K < $${(CONFIG.cabalMinMcap / 1000).toFixed(1)}K`,
-            );
-            return;
-          }
-          if (CONFIG.cabalMaxMcap > 0 && displayMcap > 0 && displayMcap > CONFIG.cabalMaxMcap) {
-            sendTelegram(
-              `⛔ **MC too High — ${symbol}**\n` +
-              `\`${mint}\`\n` +
-              `📊 MCap: $${(displayMcap / 1000).toFixed(1)}K > $${(CONFIG.cabalMaxMcap / 1000).toFixed(1)}K`,
-            );
-            return;
-          }
 
           const rug = apiResult ? buildRugFromApi(apiResult) : undefined;
 
@@ -351,8 +351,9 @@ This is the one I'd optimize for eventual live trading.
             if (rug.flags?.length) posSection.push(`🚩 Flags: \`${rug.flags.join(", ")}\``);
           }
 
-          posSection.push(`📡 Price: \`cabalspy\``);
+            posSection.push(`📡 Price: \`cabalspy\``);
           posSection.push(`📊 Positions: \`${executor.getPositionCount()}/${CONFIG.maxOpenPositions}\``);
+          posSection.push(`🎯 Score: \`${scored.score}\` ${breakdownStr ? `— ${breakdownStr}` : ""}`);
 
           // Section 3: CabalSpy Buy
           const buySection: string[] = [
@@ -412,54 +413,6 @@ This is the one I'd optimize for eventual live trading.
   ws.onerror = (err) => {
     log.error("cabalspy", "Error:", err);
   };
-}
-
-function checkWalletFilters(
-  wallets: any[],
-  totalInvested: number,
-  walletCount: number,
-): string | null {
-  const minW = CONFIG.cabalMinWallets;
-  const maxW = CONFIG.cabalMaxWallets;
-  const minSol = CONFIG.cabalMinClusterSol;
-  const maxSol = CONFIG.cabalMaxClusterSol;
-  const minAvg = CONFIG.cabalMinAvgBuySol;
-  const maxAvg = CONFIG.cabalMaxAvgBuySol;
-  const maxShare = CONFIG.cabalMaxLargestShare;
-  const minWR = CONFIG.cabalMinWinRate;
-
-  if (walletCount < minW) return `Wallets ${walletCount} < ${minW}`;
-  if (walletCount > maxW) return `Wallets ${walletCount} > ${maxW}`;
-  if (totalInvested < minSol) return `Cluster ${totalInvested} SOL < ${minSol}`;
-  if (totalInvested > maxSol) return `Cluster ${totalInvested} SOL > ${maxSol}`;
-
-  if (wallets.length === 0) return null;
-
-  const amounts: number[] = [];
-  const winRates: number[] = [];
-  for (const w of wallets) {
-    const amt = w.invested_amount ?? w.amount_invested ?? w.invested ?? w.amount ?? w.buy_amount ?? 0;
-    if (amt > 0) amounts.push(amt);
-    const wr = w.win_rate ?? w.winRate ?? w.winrate ?? w.profitability ?? w.score;
-    if (typeof wr === "number" && wr > 0) winRates.push(wr);
-  }
-
-  if (amounts.length > 0) {
-    const avg = amounts.reduce((a, b) => a + b, 0) / amounts.length;
-    if (avg < minAvg) return `Avg buy ${avg.toFixed(2)} SOL < ${minAvg}`;
-    if (avg > maxAvg) return `Avg buy ${avg.toFixed(2)} SOL > ${maxAvg}`;
-
-    const maxAmt = Math.max(...amounts);
-    const share = maxAmt / totalInvested;
-    if (share > maxShare) return `Largest wallet ${(share * 100).toFixed(0)}% > ${(maxShare * 100).toFixed(0)}%`;
-  }
-
-  if (winRates.length > 0) {
-    const avgWR = winRates.reduce((a, b) => a + b, 0) / winRates.length;
-    if (avgWR < minWR) return `Avg win rate ${(avgWR * 100).toFixed(0)}% < ${(minWR * 100).toFixed(0)}%`;
-  }
-
-  return null;
 }
 
 function sleep(ms: number): Promise<void> {
