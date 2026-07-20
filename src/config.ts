@@ -69,7 +69,7 @@ export const CONFIG = {
   logLevel: process.env.LOG_LEVEL ?? "info",
 
   // ── CabalSpy Scoring System ──────────────────────────────────────────────
-  cabalScoreBuy: number("CABAL_SCORE_BUY", 70),
+  cabalScoreBuy: number("CABAL_SCORE_BUY", 60),
   cabalScoreWatch: number("CABAL_SCORE_WATCH", 50),
   cabalFailReject: (process.env.CABAL_FAIL_REJECT ?? "true") === "true",
 };

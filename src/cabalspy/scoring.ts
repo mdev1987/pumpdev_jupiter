@@ -81,8 +81,8 @@ export function scoreSignal(params: {
     const maxShare = maxAmt / total;
     if (maxShare < 0.2) walletScore += 10;
     else if (maxShare < 0.4) walletScore += 0;
-    else if (maxShare < 0.6) walletScore -= 15;
-    else walletScore -= 30;
+    else if (maxShare < 0.6) walletScore -= 5;
+    else walletScore -= 15;
   }
 
   breakdown.wallets = Math.max(-30, Math.min(30, walletScore));
@@ -93,20 +93,33 @@ export function scoreSignal(params: {
 
   if (dexPool) {
     const liq = dexPool.liquidity?.usd;
-    const vol = dexPool.volume?.m5 ?? dexPool.volume?.h1 ?? 0;
-    if (liq && liq > 0 && vol > 0) {
-      const vlr = vol / liq;
-      if (vlr > 5) momentum += 20;
-      else if (vlr >= 2) momentum += 10;
-      else if (vlr < 1) momentum -= 10;
+    const volM5 = dexPool.volume?.m5;
+    const volH1 = dexPool.volume?.h1;
+
+    if (liq && liq > 0) {
+      if (volM5 && volM5 > 0) {
+        const vlr = volM5 / liq;
+        if (vlr > 5) momentum += 20;
+        else if (vlr >= 2) momentum += 10;
+        else if (vlr < 1) momentum -= 10;
+      } else if (volH1 && volH1 > 0) {
+        const vlr = volH1 / liq;
+        if (vlr > 5) momentum += 20;
+        else if (vlr >= 2) momentum += 10;
+      }
     }
 
-    const txns = dexPool.txns?.m5 ?? dexPool.txns?.h1;
-    if (txns) {
-      const bsRatio = txns.buys / Math.max(txns.sells, 1);
+    const txnsM5 = dexPool.txns?.m5;
+    const txnsH1 = dexPool.txns?.h1;
+    if (txnsM5) {
+      const bsRatio = txnsM5.buys / Math.max(txnsM5.sells, 1);
       if (bsRatio > 3) momentum += 15;
       else if (bsRatio >= 1) momentum += 5;
       else momentum -= 15;
+    } else if (txnsH1) {
+      const bsRatio = txnsH1.buys / Math.max(txnsH1.sells, 1);
+      if (bsRatio > 3) momentum += 15;
+      else if (bsRatio >= 1) momentum += 5;
     }
   }
 
@@ -144,8 +157,12 @@ function checkHardGates(rug?: PumpCoinsRugAnalysis): string | null {
 
   if (!c.mintRevoked) return "Mint authority not revoked";
   if (!c.freezeRevoked) return "Freeze authority not revoked";
-  if (!c.lpLocked && c.liquidityUsd > 5000) return "LP unlocked with liquidity";
-  if (c.liquidityUsd < 5000) return `Liquidity $${c.liquidityUsd} < $5000`;
+
+  // Only enforce LP/liquidity gates when a real pool exists (bonding curve graduated)
+  if (c.hasPool) {
+    if (!c.lpLocked && c.liquidityUsd > 5000) return "LP unlocked with liquidity";
+    if (c.liquidityUsd < 5000) return `Liquidity $${c.liquidityUsd} < $5000 (has pool)`;
+  }
 
   return null;
 }
