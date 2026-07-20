@@ -16,6 +16,7 @@ import { scoreSignal } from "./scoring";
 const WS_URL = "wss://stream.cabalspy.xyz";
 
 let walletFieldsLogged = false;
+const exitSignalCount = new Map<string, number>();
 
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -382,7 +383,24 @@ This is the one I'd optimize for eventual live trading.
       }
 
       if (kind === "exit" && executor) {
-        await executor.sell(mint, "cabalspy_exit");
+        const confirmations = CONFIG.cabalSellConfirmations;
+        const count = (exitSignalCount.get(mint) ?? 0) + 1;
+        exitSignalCount.set(mint, count);
+
+        if (confirmations > 1 && count < confirmations) {
+          sendTelegram(
+            `⚠️ **Exit Signal ${count}/${confirmations} — ${symbol}**\n` +
+            `\`${mint}\`\n` +
+            `👥 Wallets: \`${walletCount}\`\n` +
+            `⏳ Waiting for ${confirmations - count} more confirmation(s)`,
+          );
+          return;
+        }
+
+        exitSignalCount.delete(mint);
+        const sold = await executor.sell(mint, "cabalspy_exit");
+        if (!sold) return;
+
         callbacks?.onSell?.(mint);
 
         const exitReport = [

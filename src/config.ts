@@ -72,4 +72,13 @@ export const CONFIG = {
   cabalScoreBuy: number("CABAL_SCORE_BUY", 60),
   cabalScoreWatch: number("CABAL_SCORE_WATCH", 50),
   cabalFailReject: (process.env.CABAL_FAIL_REJECT ?? "true") === "true",
+
+  // ── CabalSpy Exit Controls ──────────────────────────────────────────────
+  cabalMinHoldSecs: number("CABAL_MIN_HOLD_SECS", 180),
+  cabalSellConfirmations: number("CABAL_SELL_CONFIRMATIONS", 2),
+
+  // ── CabalSpy Watchlist Promotion ────────────────────────────────────────
+  watchPromotionEnabled: (process.env.WATCH_PROMOTION_ENABLED ?? "true") === "true",
+  watchPromotionClusterSol: number("WATCH_PROMOTION_CLUSTER_SOL", 10),
+  watchPromotionPriceChange: number("WATCH_PROMOTION_PRICE_CHANGE", 10),
 };

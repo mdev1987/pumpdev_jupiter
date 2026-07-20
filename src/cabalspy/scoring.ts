@@ -26,7 +26,7 @@ export function scoreSignal(params: {
   const breakdown: Record<string, number> = {};
 
   // ── 1. Hard Safety Gate ──
-  const hardGate = checkHardGates(rugAnalysis);
+  const hardGate = checkHardGates(rugAnalysis, dexPool);
   if (hardGate) {
     return { score: 0, action: "reject", breakdown, reason: hardGate };
   }
@@ -140,13 +140,22 @@ export function scoreSignal(params: {
   if (score >= CONFIG.cabalScoreBuy) {
     return { score, action: "buy", breakdown };
   }
+
+  // ── 7. Watchlist promotion ──
   if (score >= CONFIG.cabalScoreWatch) {
+    if (CONFIG.watchPromotionEnabled) {
+      const priceChange = dexPool?.priceChange?.m5 ?? dexPool?.priceChange?.h1 ?? 0;
+      if (totalInvested >= CONFIG.watchPromotionClusterSol && priceChange >= CONFIG.watchPromotionPriceChange) {
+        return { score, action: "buy", breakdown, reason: `Promoted from watch — ${totalInvested.toFixed(1)} SOL cluster, ${priceChange.toFixed(1)}% change` };
+      }
+    }
     return { score, action: "watch", breakdown, reason: `Score ${score} in watch range (${CONFIG.cabalScoreWatch}-${CONFIG.cabalScoreBuy - 1})` };
   }
+
   return { score, action: "reject", breakdown, reason: `Score ${score} < ${CONFIG.cabalScoreWatch}` };
 }
 
-function checkHardGates(rug?: PumpCoinsRugAnalysis): string | null {
+function checkHardGates(rug?: PumpCoinsRugAnalysis, dexPool?: DexScreenerPool): string | null {
   if (!rug?.checks) return null;
 
   if (CONFIG.cabalFailReject && rug.verdict === "FAIL") {
@@ -158,10 +167,11 @@ function checkHardGates(rug?: PumpCoinsRugAnalysis): string | null {
   if (!c.mintRevoked) return "Mint authority not revoked";
   if (!c.freezeRevoked) return "Freeze authority not revoked";
 
-  // Only enforce LP/liquidity gates when a real pool exists (bonding curve graduated)
-  if (c.hasPool) {
-    if (!c.lpLocked && c.liquidityUsd > 5000) return "LP unlocked with liquidity";
-    if (c.liquidityUsd < 5000) return `Liquidity $${c.liquidityUsd} < $5000 (has pool)`;
+  // Only enforce LP/liquidity gates when DexScreener confirmed a real pool exists
+  // (pre-graduation bonding curve tokens on pump.fun have no DexScreener pool)
+  if (dexPool?.liquidity?.usd != null) {
+    if (dexPool.liquidity.usd < 5000) return `DEX liquidity $${dexPool.liquidity.usd.toFixed(0)} < $5000`;
+    if (!c.lpLocked && dexPool.liquidity.usd > 5000) return "LP unlocked with DEX liquidity";
   }
 
   return null;

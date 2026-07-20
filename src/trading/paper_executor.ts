@@ -89,9 +89,18 @@ export class PaperExecutor {
     return true;
   }
 
-  async sell(ca: string, reason: string) {
+  async sell(ca: string, reason: string): Promise<boolean> {
     const p = this.positions.get(ca);
-    if (!p) return;
+    if (!p) return false;
+
+    // Enforce minimum hold for CabalSpy exits
+    if (reason === "cabalspy_exit") {
+      const ageSecs = (Date.now() - p.openedAt) / 1000;
+      if (ageSecs < CONFIG.cabalMinHoldSecs) {
+        log.dev("executor", `Hold ${ca} — ${ageSecs.toFixed(0)}s < ${CONFIG.cabalMinHoldSecs}s min hold`);
+        return false;
+      }
+    }
 
     const result: PriceResult | null = await this.prices.getPriceWithSource(ca);
     const priceSOL = result?.price ?? p.currentPriceSOL;
@@ -137,6 +146,7 @@ export class PaperExecutor {
       source,
       p.dex,
     );
+    return true;
   }
 
   updatePrice(ca: string, priceSOL: number) {
